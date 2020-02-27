@@ -2,6 +2,7 @@
     "className": "committed-vs-delivered",
     "server": "https://rally1.rallydev.com",
     "sdk": "2.1",
+    "repository": "https://github.com/CustomAgile/committed-vs-delivered",
     "javascript": [
         "node_modules/@agile-central-technical-services/utils-shared-views/index.js",
         "node_modules/@agile-central-technical-services/utils-ancestor-pi-app-filter/index.js",

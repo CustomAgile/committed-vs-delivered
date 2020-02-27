@@ -7,30 +7,30 @@ Ext.define("committed-vs-delivered", {
         align: 'stretch'
     },
     items: [{
-            id: Utils.AncestorPiAppFilter.RENDER_AREA_ID,
-            xtype: 'container',
-            layout: {
-                type: 'hbox',
-                align: 'middle',
-                defaultMargins: '0 10 10 0',
-            }
-        },
-        {
-            xtype: 'container',
-            itemId: 'controls-area',
-            layout: 'hbox'
-        },
-        {
-            xtype: 'container',
-            itemId: 'filters-area',
-        },
-        {
-            id: 'grid-area',
-            xtype: 'container',
-            flex: 1,
-            type: 'vbox',
-            align: 'stretch'
+        id: Utils.AncestorPiAppFilter.RENDER_AREA_ID,
+        xtype: 'container',
+        layout: {
+            type: 'hbox',
+            align: 'middle',
+            defaultMargins: '0 10 10 0',
         }
+    },
+    {
+        xtype: 'container',
+        itemId: 'controls-area',
+        layout: 'hbox'
+    },
+    {
+        xtype: 'container',
+        itemId: 'filters-area',
+    },
+    {
+        id: 'grid-area',
+        xtype: 'container',
+        flex: 1,
+        type: 'vbox',
+        align: 'stretch'
+    }
     ],
     config: {
         defaultSettings: {
@@ -49,16 +49,22 @@ Ext.define("committed-vs-delivered", {
     currentData: [],
     settingsChanged: false,
 
-    onTimeboxScopeChange: function(scope) {
+    onTimeboxScopeChange: function (scope) {
         this.callParent(arguments);
         this.viewChange();
     },
 
-    launch: function() {
+    launch: async function () {
+        this.projects = await this._getProjectList();
+        if (!this.projects || !this.projects.length) {
+            this._showError('Failed to fetch list of project IDs');
+            return;
+        }
+
         Rally.data.util.PortfolioItemHelper.getPortfolioItemTypes().then({
             scope: this,
-            success: function(portfolioItemTypes) {
-                this.portfolioItemTypes = _.sortBy(portfolioItemTypes, function(type) {
+            success: function (portfolioItemTypes) {
+                this.portfolioItemTypes = _.sortBy(portfolioItemTypes, function (type) {
                     return type.get('Ordinal');
                 });
                 this.lowestPiType = this.portfolioItemTypes[0];
@@ -66,13 +72,13 @@ Ext.define("committed-vs-delivered", {
                 this.setTimeboxFieldsForType(this.getSetting('timeboxType'));
                 this.viewChange();
             },
-            failure: function(msg) {
+            failure: function (msg) {
                 this._showError(msg);
             },
         })
     },
 
-    setModelFieldsForType: function(artifactType) {
+    setModelFieldsForType: function (artifactType) {
         this.modelName = artifactType;
         this.acceptedDateField = 'AcceptedDate';
         if (this.isPiTypeSelected()) {
@@ -80,7 +86,7 @@ Ext.define("committed-vs-delivered", {
         }
     },
 
-    setTimeboxFieldsForType: function(timeboxType) {
+    setTimeboxFieldsForType: function (timeboxType) {
         this.timeboxType = timeboxType;
 
         if (this.timeboxType == Constants.TIMEBOX_TYPE_RELEASE) {
@@ -97,7 +103,7 @@ Ext.define("committed-vs-delivered", {
      * Return a promise that resolves once the controls are initialized and
      * have initial values
      */
-    addControls: function() {
+    addControls: function () {
         var filterDeferred = Ext.create('Deft.Deferred');
         var context = this.getContext();
         var controlsArea = this.down('#controls-area');
@@ -118,11 +124,11 @@ Ext.define("committed-vs-delivered", {
             },
             listeners: {
                 scope: this,
-                inlinefilterready: function(panel) {
+                inlinefilterready: function (panel) {
                     this.down('#filters-area').add(panel);
                 },
 
-                inlinefilterchange: function(cmp) {
+                inlinefilterchange: function (cmp) {
                     if (filterDeferred.getState() == 'pending') {
                         // This is the first filter change event.
                         // This component fires change before it is fully added. Capture the
@@ -148,7 +154,7 @@ Ext.define("committed-vs-delivered", {
                 html: 'Columns to Export',
                 anchor: 'top'
             },
-            getTitle: function() {
+            getTitle: function () {
                 return 'Export Columns';
             },
             modelNames: [this.modelName],
@@ -159,7 +165,7 @@ Ext.define("committed-vs-delivered", {
             // Always need the accepted date field
             alwaysSelectedValues: Constants.ALWAYS_SELECTED_FIELDS.concat(this.acceptedDateField),
             listeners: {
-                fieldsupdated: function(fields) {
+                fieldsupdated: function (fields) {
                     this.viewChange();
                 },
                 scope: this
@@ -172,12 +178,12 @@ Ext.define("committed-vs-delivered", {
             itemId: 'actions-menu-button',
             iconCls: 'icon-export',
             listeners: {
-                click: function(button) {
+                click: function (button) {
                     var menu = Ext.widget({
                         xtype: 'rallymenu',
                         items: [{
                             text: 'Export to CSV...',
-                            handler: function() {
+                            handler: function () {
                                 var csvText = CArABU.technicalservices.FileUtilities.convertDataArrayToCSVText(this.currentData, this.getExportFieldsHash());
                                 CArABU.technicalservices.FileUtilities.saveCSVToFile(csvText, 'comitted.csv');
                             },
@@ -196,7 +202,7 @@ Ext.define("committed-vs-delivered", {
         return filterDeferred.promise;
     },
 
-    getFieldsFromButton: function() {
+    getFieldsFromButton: function () {
         var fieldPicker = this.down('tsfieldpickerbutton');
         var result = [];
         if (fieldPicker) {
@@ -205,7 +211,7 @@ Ext.define("committed-vs-delivered", {
         return result;
     },
 
-    getExportFieldsHash: function() {
+    getExportFieldsHash: function () {
         var fields = this.getFieldsFromButton();
         // Special case, add the accepted date after all fields from the field picker so it
         // is next to the derirved fields instead of in the first column of export.
@@ -213,13 +219,13 @@ Ext.define("committed-vs-delivered", {
         fields = _.without(fields, this.acceptedDateField);
         fields.push(this.acceptedDateField);
         fields = fields.concat(Constants.DERIVED_FIELDS);
-        return _.reduce(fields, function(accum, field) {
+        return _.reduce(fields, function (accum, field) {
             accum[field] = this.headerName(field);
             return accum;
         }, {}, this);
     },
 
-    headerName: function(field) {
+    headerName: function (field) {
         var result;
         switch (field) {
             case "Iteration":
@@ -247,7 +253,7 @@ Ext.define("committed-vs-delivered", {
         return result;
     },
 
-    getFiltersFromButton: function() {
+    getFiltersFromButton: function () {
         var filters = null;
         try {
             filters = this.filterButton.getWsapiFilter()
@@ -260,7 +266,7 @@ Ext.define("committed-vs-delivered", {
     },
 
     // Usual monkey business to size gridboards
-    onResize: function() {
+    onResize: function () {
         this.callParent(arguments);
         var gridArea = this.down('#grid-area');
         var gridboard = this.down('rallygridboard');
@@ -269,12 +275,12 @@ Ext.define("committed-vs-delivered", {
         }
     },
 
-    _buildChartConfig: function() {
+    _buildChartConfig: function () {
         // Get the last N timeboxes
         return this.getTimeboxes().then({
             scope: this,
-            success: function(timeboxGroups) {
-                var promises = _.map(timeboxGroups, function(timeboxGroup) {
+            success: function (timeboxGroups) {
+                var promises = _.map(timeboxGroups, function (timeboxGroup) {
                     var timebox = timeboxGroup[0]; // Representative timebox for the group
                     var planningWindowEndIso = Ext.Date.add(timebox.get(this.timeboxStartDateField), Ext.Date.DAY, this.getSetting('planningWindow')).toISOString();
                     var timeboxEndIso = timebox.get(this.timeboxEndDateField).toISOString();
@@ -282,7 +288,7 @@ Ext.define("committed-vs-delivered", {
                     var snapshotByOid = {}
                     return this.getSnapshotsFromTimeboxGroup(timeboxGroup).then({
                         scope: this,
-                        success: function(snapshots) {
+                        success: function (snapshots) {
                             if (!snapshots || snapshots.length == 0) {
                                 return {
                                     timebox: timebox,
@@ -291,7 +297,7 @@ Ext.define("committed-vs-delivered", {
                             }
                             else {
                                 var oidQueries = [];
-                                _.each(snapshots, function(snapshot) {
+                                _.each(snapshots, function (snapshot) {
                                     var oid = snapshot.get('ObjectID');
                                     oidQueries.push({
                                         property: 'ObjectID',
@@ -323,9 +329,9 @@ Ext.define("committed-vs-delivered", {
                                 });
                                 return artifactStore.load().then({
                                     scope: this,
-                                    success: function(artifacts) {
+                                    success: function (artifacts) {
                                         // Augment each artifact with Planned, Delivered and timebox Added Date
-                                        _.each(artifacts, function(artifact) {
+                                        _.each(artifacts, function (artifact) {
                                             var snapshot = snapshotByOid[artifact.get('ObjectID')];
                                             var validFrom = snapshot.get('_ValidFrom')
                                             if (validFrom <= planningWindowEndIso) {
@@ -363,15 +369,15 @@ Ext.define("committed-vs-delivered", {
             }
         }).then({
             scope: this,
-            success: function(data) {
+            success: function (data) {
                 this.data = data;
                 return this.getChartConfig(this.data);
             }
         });
     },
 
-    getChartConfig: function(data) {
-        var sortedData = _.sortBy(data, function(datum) {
+    getChartConfig: function (data) {
+        var sortedData = _.sortBy(data, function (datum) {
             return datum.timebox.get(this.timeboxStartDateField).toISOString();
         }, this);
         var timeboxNames = [];
@@ -380,7 +386,7 @@ Ext.define("committed-vs-delivered", {
         var unplannedComitted = [];
         var unplannedDelivered = [];
         this.currentData = [];
-        _.each(sortedData, function(datum, index, collection) {
+        _.each(sortedData, function (datum, index, collection) {
             var pc = 0,
                 pd = 0,
                 uc = 0,
@@ -396,7 +402,7 @@ Ext.define("committed-vs-delivered", {
             timeboxNames.push(timeboxName);
 
             if (datum.artifactStore) {
-                datum.artifactStore.each(function(artifact) {
+                datum.artifactStore.each(function (artifact) {
                     if (artifact.get('AcceptedBeforeTimeboxStart')) {
                         // Special case. The artifact was accepted before the timebox started. The work occurred
                         // *before* this timebox started and is NOT therefore included in the timebox as committed
@@ -446,7 +452,7 @@ Ext.define("committed-vs-delivered", {
                 },
                 legend: {
                     layout: 'vertical',
-                    labelFormatter: function() {
+                    labelFormatter: function () {
                         var result = this.name;
                         if (this.name == Constants.UNPLANNED) {
                             var app = Rally.getApp();
@@ -468,7 +474,7 @@ Ext.define("committed-vs-delivered", {
                             verticalAlign: 'top',
                         },
                         events: {
-                            legendItemClick: function() { return false; } // Disable hiding some of data on legend click
+                            legendItemClick: function () { return false; } // Disable hiding some of data on legend click
                         }
                     }
                 },
@@ -520,7 +526,7 @@ Ext.define("committed-vs-delivered", {
         }
     },
 
-    getTimeboxes: function() {
+    getTimeboxes: function () {
         // Get the N most recent timeboxes in the current project
         // Sort by name
         // Get timeboxes by name from all child projects
@@ -548,8 +554,8 @@ Ext.define("committed-vs-delivered", {
             pageSize: this.getSetting('timeboxCount')
         }).load().then({
             scope: this,
-            success: function(timeboxes) {
-                var timeboxFilter = _.map(timeboxes, function(timebox) {
+            success: function (timeboxes) {
+                var timeboxFilter = _.map(timeboxes, function (timebox) {
                     return Rally.data.wsapi.Filter.and([{
                         property: 'Name',
                         value: timebox.get('Name')
@@ -570,7 +576,7 @@ Ext.define("committed-vs-delivered", {
             }
         }).then({
             scope: this,
-            success: function(timeboxFilter) {
+            success: function (timeboxFilter) {
                 if (timeboxFilter) {
                     return Ext.create('Rally.data.wsapi.Store', {
                         model: this.timeboxType,
@@ -590,48 +596,49 @@ Ext.define("committed-vs-delivered", {
             }
         }).then({
             scope: this,
-            success: function(timeboxes) {
+            success: function (timeboxes) {
                 // Group by timebox name
-                return _.groupBy(timeboxes, function(timebox) {
+                return _.groupBy(timeboxes, function (timebox) {
                     return timebox.get('Name');
                 });
             }
         })
     },
 
-    getSnapshotsFromTimeboxGroup: function(timeboxGroup) {
+    getSnapshotsFromTimeboxGroup: function (timeboxGroup) {
         var timebox = timeboxGroup[0]; // Representative timebox for the group
-        var timeboxOids = _.map(timeboxGroup, function(timebox) {
+        var timeboxOids = _.map(timeboxGroup, function (timebox) {
             return timebox.get('ObjectID');
         });
         var timeboxEndIso = timebox.get(this.timeboxEndDateField).toISOString();
         var planningWindowEndIso = Ext.Date.add(timebox.get(this.timeboxStartDateField), Ext.Date.DAY, this.getSetting('planningWindow')).toISOString();
         var dateFilter = Rally.data.lookback.QueryFilter.and([{
-                property: '_ValidFrom',
-                operator: '<=',
-                value: timeboxEndIso
-            },
-            {
-                property: '_ValidTo',
-                operator: '>=',
-                value: planningWindowEndIso
-            }
+            property: '_ValidFrom',
+            operator: '<=',
+            value: timeboxEndIso
+        },
+        {
+            property: '_ValidTo',
+            operator: '>=',
+            value: planningWindowEndIso
+        }
         ]);
         var dataContext = this.getContext().getDataContext();
 
         var filters = [{
-                property: '_TypeHierarchy',
-                value: this.modelName
-            },
-            {
-                property: this.timeboxType,
-                operator: 'in',
-                value: timeboxOids
-            },
-            {
-                property: '_ProjectHierarchy',
-                value: Rally.util.Ref.getOidFromRef(dataContext.project)
-            },
+            property: '_TypeHierarchy',
+            value: this.modelName
+        },
+        {
+            property: this.timeboxType,
+            operator: 'in',
+            value: timeboxOids
+        },
+        {
+            property: 'Project',
+            operator: 'in',
+            value: this.projects// Rally.util.Ref.getOidFromRef(dataContext.project)
+        },
             dateFilter
         ];
 
@@ -648,15 +655,69 @@ Ext.define("committed-vs-delivered", {
         return store.load();
     },
 
-    _addGridboard: function(chartConfig) {
+    async _getProjectList() {
+        let projectStore = Ext.create('Rally.data.wsapi.Store', {
+            model: 'Project',
+            fetch: ['Name', 'ObjectID', 'Children'],
+            filters: [{ property: 'ObjectID', value: this.getContext().getProject().ObjectID }],
+            limit: 1,
+            pageSize: 1,
+            autoLoad: false
+        });
+
+        let results = await projectStore.load();
+        if (results) {
+            let projects = await this._getAllChildProjects(results);
+            let projectIds = _.map(projects, (p) => {
+                return p.get('ObjectID');
+            });
+            return projectIds;
+        }
+        else {
+            return [];
+        }
+    },
+
+    async _getAllChildProjects(allRoots = [], fetch = ['Name', 'Children', 'ObjectID']) {
+        if (!allRoots.length) { return []; }
+
+        const promises = allRoots.map(r => this._wrap(r.getCollection('Children', { fetch, limit: Infinity }).load()));
+        const children = _.flatten(await Promise.all(promises));
+        const decendents = await this._getAllChildProjects(children, fetch);
+        const removeDupes = {};
+        let finalResponse = _.flatten([...decendents, ...allRoots, ...children]);
+
+        // eslint-disable-next-line no-return-assign
+        finalResponse.forEach(s => removeDupes[s.get('_ref')] = s);
+        finalResponse = Object.values(removeDupes);
+        return finalResponse;
+    },
+
+    async _wrap(deferred) {
+        if (!deferred || !_.isFunction(deferred.then)) {
+            return Promise.reject(new Error('Wrap cannot process this type of data into a ECMA promise'));
+        }
+        return new Promise((resolve, reject) => {
+            deferred.then({
+                success(...args) {
+                    resolve(...args);
+                },
+                failure(error) {
+                    reject(error);
+                }
+            });
+        });
+    },
+
+    _addGridboard: function (chartConfig) {
         var gridArea = this.down('#grid-area')
         gridArea.removeAll();
 
         var filters = [];
         var timeboxScope = this.getContext().getTimeboxScope();
-        if (timeboxScope && timeboxScope.isApplicable(this.modelName)) {
-            filters.push(timeboxScope.getQueryFilter());
-        }
+        // if (timeboxScope && timeboxScope.isApplicable(this.modelName)) {
+        filters.push(timeboxScope.getQueryFilter());
+        // }
 
         var context = this.getContext();
         this.gridboard = gridArea.add({
@@ -673,11 +734,11 @@ Ext.define("committed-vs-delivered", {
         });
     },
 
-    isPiTypeSelected: function() {
+    isPiTypeSelected: function () {
         return this.modelName == this.lowestPiType.get('TypePath');
     },
 
-    getConfigItems: function() {
+    getConfigItems: function () {
         var timeboxTypeStore = Ext.create('Ext.data.Store', {
             fields: ['name', 'value'],
             data: [
@@ -698,129 +759,129 @@ Ext.define("committed-vs-delivered", {
             data: typeStoreData
         });
         return [{
-                xtype: 'combobox',
-                name: 'artifactType',
-                value: this.getSetting('artifactType'),
-                fieldLabel: 'Artifact type',
-                labelWidth: 150,
-                store: artifactTypeStore,
-                queryMode: 'local',
-                displayField: 'name',
-                valueField: 'value',
-                listeners: {
-                    scope: this,
-                    change: function(field, newValue, oldValue) {
-                        if (newValue != oldValue) {
-                            this.updateSettingsValues({
-                                settings: {
-                                    artifactType: newValue
-                                }
-                            });
-                            // Choice of artifact has changed
-                            this.setModelFieldsForType(newValue);
-                            // If Feature, also update timebox type to 'Release'
-                            var timeboxTypeControl = Ext.ComponentManager.get('timeboxType');
-                            if (this.isPiTypeSelected()) {
-                                timeboxTypeControl.setValue(Constants.TIMEBOX_TYPE_RELEASE);
-                                timeboxTypeControl.disable(); // User cannot pick other timeboxes for Features
+            xtype: 'combobox',
+            name: 'artifactType',
+            value: this.getSetting('artifactType'),
+            fieldLabel: 'Artifact type',
+            labelWidth: 150,
+            store: artifactTypeStore,
+            queryMode: 'local',
+            displayField: 'name',
+            valueField: 'value',
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                artifactType: newValue
                             }
-                            else {
-                                timeboxTypeControl.enable();
-                            }
+                        });
+                        // Choice of artifact has changed
+                        this.setModelFieldsForType(newValue);
+                        // If Feature, also update timebox type to 'Release'
+                        var timeboxTypeControl = Ext.ComponentManager.get('timeboxType');
+                        if (this.isPiTypeSelected()) {
+                            timeboxTypeControl.setValue(Constants.TIMEBOX_TYPE_RELEASE);
+                            timeboxTypeControl.disable(); // User cannot pick other timeboxes for Features
                         }
-                    }
-                }
-            },
-            {
-                xtype: 'combobox',
-                name: 'timeboxType',
-                id: 'timeboxType',
-                value: this.getSetting('timeboxType'),
-                fieldLabel: 'Timebox type',
-                labelWidth: 150,
-                store: timeboxTypeStore,
-                queryMode: 'local',
-                displayField: 'name',
-                valueField: 'value',
-                disabled: this.isPiTypeSelected(),
-                listeners: {
-                    scope: this,
-                    change: function(field, newValue, oldValue) {
-                        if (newValue != oldValue) {
-                            this.updateSettingsValues({
-                                settings: {
-                                    timeboxType: newValue
-                                }
-                            });
-                            // Choice of timebox has changed
-                            this.setTimeboxFieldsForType(newValue);
-                        }
-                    }
-                }
-            },
-            {
-                xtype: 'rallynumberfield',
-                name: 'timeboxCount',
-                value: this.getSetting('timeboxCount'),
-                fieldLabel: "Timebox Count",
-                labelWidth: 150,
-                minValue: 1,
-                allowDecimals: false,
-                listeners: {
-                    scope: this,
-                    change: function(field, newValue, oldValue) {
-                        if (newValue != oldValue) {
-                            this.updateSettingsValues({
-                                settings: {
-                                    timeboxCount: newValue
-                                }
-                            });
-                        }
-                    }
-                }
-            }, {
-                xtype: 'rallynumberfield',
-                name: 'planningWindow',
-                value: this.getSetting('planningWindow'),
-                fieldLabel: 'Timebox planning window (days)',
-                labelWidth: 150,
-                minValue: 0,
-                allowDecimals: false,
-                listeners: {
-                    scope: this,
-                    change: function(field, newValue, oldValue) {
-                        if (newValue != oldValue) {
-                            this.updateSettingsValues({
-                                settings: {
-                                    planningWindow: newValue
-                                }
-                            });
-                        }
-                    }
-                }
-            }, {
-                xtype: 'rallycheckboxfield',
-                name: 'currentTimebox',
-                value: this.getSetting('currentTimebox'),
-                fieldLabel: 'Show current, in-progress timebox',
-                labelWidth: 150,
-                listeners: {
-                    scope: this,
-                    change: function(field, newValue, oldValue) {
-                        if (newValue != oldValue) {
-                            this.updateSettingsValues({
-                                settings: {
-                                    currentTimebox: newValue
-                                }
-                            });
+                        else {
+                            timeboxTypeControl.enable();
                         }
                     }
                 }
             }
+        },
+        {
+            xtype: 'combobox',
+            name: 'timeboxType',
+            id: 'timeboxType',
+            value: this.getSetting('timeboxType'),
+            fieldLabel: 'Timebox type',
+            labelWidth: 150,
+            store: timeboxTypeStore,
+            queryMode: 'local',
+            displayField: 'name',
+            valueField: 'value',
+            disabled: this.isPiTypeSelected(),
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                timeboxType: newValue
+                            }
+                        });
+                        // Choice of timebox has changed
+                        this.setTimeboxFieldsForType(newValue);
+                    }
+                }
+            }
+        },
+        {
+            xtype: 'rallynumberfield',
+            name: 'timeboxCount',
+            value: this.getSetting('timeboxCount'),
+            fieldLabel: "Timebox Count",
+            labelWidth: 150,
+            minValue: 1,
+            allowDecimals: false,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                timeboxCount: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }, {
+            xtype: 'rallynumberfield',
+            name: 'planningWindow',
+            value: this.getSetting('planningWindow'),
+            fieldLabel: 'Timebox planning window (days)',
+            labelWidth: 150,
+            minValue: 0,
+            allowDecimals: false,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                planningWindow: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }, {
+            xtype: 'rallycheckboxfield',
+            name: 'currentTimebox',
+            value: this.getSetting('currentTimebox'),
+            fieldLabel: 'Show current, in-progress timebox',
+            labelWidth: 150,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                currentTimebox: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }
         ]
     },
 
-    viewChange: function() {
+    viewChange: function () {
         this.setLoading(true);
         // Add the other filter, config and export controls
         this.addControls().then({
@@ -828,14 +889,14 @@ Ext.define("committed-vs-delivered", {
             success: this._buildChartConfig
         }).then({
             scope: this,
-            success: function(chartConfig) {
+            success: function (chartConfig) {
                 this._addGridboard(chartConfig);
                 this.setLoading(false);
             }
         });
     },
 
-    onSettingsClose: function() {
+    onSettingsClose: function () {
         // Don't redraw the app unless something has changed
         if (this.settingsChanged) {
             this.settingsChanged = false;
@@ -843,16 +904,20 @@ Ext.define("committed-vs-delivered", {
         }
     },
 
-    updateSettingsValues: function(options) {
+    updateSettingsValues: function (options) {
         this.settingsChanged = true;
         this.callParent(arguments);
     },
 
-    getModelScopedStateId: function(modelName, id) {
+    getModelScopedStateId: function (modelName, id) {
         return this.getContext().getScopedStateId(modelName + '-' + id);
     },
 
-    getSettingsFields: function() {
+    getSettingsFields: function () {
         return this.getConfigItems();
+    },
+
+    _showError: function (msg) {
+        Rally.ui.notify.Notifier.showError({ message: msg });
     }
 });
