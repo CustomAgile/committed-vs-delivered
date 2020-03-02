@@ -715,9 +715,9 @@ Ext.define("committed-vs-delivered", {
 
         var filters = [];
         var timeboxScope = this.getContext().getTimeboxScope();
-        // if (timeboxScope && timeboxScope.isApplicable(this.modelName)) {
-        filters.push(timeboxScope.getQueryFilter());
-        // }
+        if (timeboxScope && timeboxScope.getQueryFilter()) {
+            filters.push(timeboxScope.getQueryFilter());
+        }
 
         var context = this.getContext();
         this.gridboard = gridArea.add({
