@@ -5,12 +5,16 @@
     "repository": "https://github.com/CustomAgile/committed-vs-delivered",
     "javascript": [
         "node_modules/@agile-central-technical-services/utils-shared-views/index.js",
-        "node_modules/@agile-central-technical-services/utils-ancestor-pi-app-filter/index.js",
+        "node_modules/@customagile/ancestor-pi-multi-level-pi-app-filter/index.js",
         "node_modules/@agile-central-technical-services/utils-ancestor-pi-inline-filter/index.js",
         "node_modules/@agile-central-technical-services/utils-field-picker/index.js",
         "node_modules/file-saver/FileSaver.min.js",
         "node_modules/@agile-central-technical-services/utils-file-utils/index.js",
         "src/javascript/utils/*.js",
         "src/javascript/*.js"
+    ],
+    "css": [
+        "src/style/app.css",
+        "node_modules/@customagile/ancestor-pi-multi-level-pi-app-filter/index.css"
     ]
 }

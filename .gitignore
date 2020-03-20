@@ -8,3 +8,4 @@ _SpecRunner.html
 .project
 .settings
 auth.*.json
+.DS_Store

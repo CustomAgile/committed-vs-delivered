@@ -39,6 +39,5 @@ Ext.define('Constants', {
         TIMEBOX_TYPE_RELEASE: 'Release',
         TIMEBOX_TYPE_ITERATION_LABEL: 'Iteration',
         TIMEBOX_TYPE_RELEASE_LABEL: 'Release',
-        UNPLANNED_DESCRIPTION: 'added to {timebox} more than {days} days after start'
     }
 });

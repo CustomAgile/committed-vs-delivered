@@ -12,12 +12,12 @@ Ext.override(Rally.app.App, {
      * @param options.success called when the prefs are loaded
      * @param options.scope scope to call success with
      */
-    updateSettingsValues: function(options) {
+    updateSettingsValues: function (options) {
         Rally.data.PreferenceManager.update(Ext.apply(this._getAppSettingsLoadOptions(), {
             requester: this,
             settings: options.settings,
-            success: function(updatedSettings) {
-                var updatedSettingsHash = _.reduce(updatedSettings, function(accumulator, updatedSetting) {
+            success: function (updatedSettings) {
+                var updatedSettingsHash = _.reduce(updatedSettings, function (accumulator, updatedSetting) {
                     accumulator[updatedSetting.get('Name')] = updatedSetting.get('Value');
                     return accumulator;
                 }, {});
@@ -30,4 +30,15 @@ Ext.override(Rally.app.App, {
             scope: this
         }));
     }
-})
+});
+
+Ext.override(Ext.form.field.Checkbox, {
+    getState: function () {
+        return { checked: this.getValue() };
+    },
+    applyState: function (state) {
+        if (typeof state.checked === 'boolean') {
+            this.setValue(state.checked);
+        }
+    }
+});
