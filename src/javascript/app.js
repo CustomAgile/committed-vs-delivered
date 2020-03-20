@@ -9,10 +9,17 @@ Ext.define("committed-vs-delivered", {
     items: [
         {
             xtype: 'tabpanel',
+            itemId: 'filterAndSettingsPanel',
+            header: false,
+            collapsible: true,
+            animCollapse: false,
             cls: 'blue-tabs',
             activeTab: 0,
             plain: true,
-            hideMode: 'offsets',
+            // hideMode: 'offsets',
+            tabBar: {
+                margin: '0 0 0 100'
+            },
             autoRender: true,
             minTabWidth: 140,
             items: [
@@ -64,13 +71,13 @@ Ext.define("committed-vs-delivered", {
         }
     ],
     config: {
-        // defaultSettings: {
-        //     artifactType: 'HierarchicalRequirement',
-        //     timeboxType: Constants.TIMEBOX_TYPE_ITERATION,
-        //     timeboxCount: 5,
-        //     planningWindow: 2,
-        //     currentTimebox: true
-        // }
+        defaultSettings: {
+            artifactType: 'HierarchicalRequirement',
+            timeboxType: Constants.TIMEBOX_TYPE_ITERATION,
+            timeboxCount: 5,
+            planningWindow: 2,
+            currentTimebox: true
+        }
     },
 
     integrationHeaders: {
@@ -84,6 +91,8 @@ Ext.define("committed-vs-delivered", {
         Rally.data.wsapi.Proxy.superclass.timeout = 180000;
         Rally.data.wsapi.batch.Proxy.superclass.timeout = 180000;
 
+        this.down('#grid-area').on('resize', this.resizeChart, this);
+
         this.loading = true;
         this.projects = await this._getProjectList();
 
@@ -91,6 +100,25 @@ Ext.define("committed-vs-delivered", {
             this._showError('Failed to fetch list of project IDs');
             return;
         }
+
+        let collapseBtn = Ext.widget('rallybutton', {
+            // xtype: 'rallybutton',
+            text: 'Collapse',
+            floating: true,
+            shadow: false,
+            height: 21,
+            handler: (btn) => {
+                this.down('#filterAndSettingsPanel').toggleCollapse();
+                if (btn.getText() === 'Collapse') {
+                    btn.setText('Expand');
+                }
+                else {
+                    btn.setText('Collapse');
+                }
+            }
+        });
+
+        collapseBtn.showBy(this.down('#filterAndSettingsPanel'), 'tl-tl', [0, 3]);
 
         this.addSettingItems();
 
@@ -316,12 +344,12 @@ Ext.define("committed-vs-delivered", {
     },
 
     // Usual monkey business to size gridboards
-    onResize: function () {
-        this.callParent(arguments);
+    resizeChart: function () {
+        // this.callParent(arguments);
         var gridArea = this.down('#grid-area');
         var gridboard = this.down('rallygridboard');
         if (gridArea && gridboard) {
-            gridboard.setHeight(gridArea.getHeight() - Constants.APP_RESERVED_HEIGHT)
+            gridboard.setHeight(gridArea.getHeight())
         }
     },
 
@@ -826,7 +854,7 @@ Ext.define("committed-vs-delivered", {
             xtype: 'combobox',
             name: 'artifactType',
             itemId: 'artifactTypeCombo',
-            value: 'HierarchicalRequirement',
+            value: this.getSetting('artifactType'),
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-artifact-type-combo'),
             stateEvents: ['change'],
@@ -869,9 +897,9 @@ Ext.define("committed-vs-delivered", {
         },
         {
             xtype: 'combobox',
-            name: 'timeboxType',
             id: 'timeboxTypeCombo',
-            value: Constants.TIMEBOX_TYPE_ITERATION,
+            value: this.getSetting('timeboxType'),
+            disabled: this.getSetting('artifactType') === 'PortfolioItem/Feature',
             fieldLabel: 'Timebox type',
             labelWidth: 200,
             store: timeboxTypeStore,
@@ -899,8 +927,7 @@ Ext.define("committed-vs-delivered", {
         {
             xtype: 'rallynumberfield',
             itemId: 'timeboxCountInput',
-            name: 'timeboxCount',
-            value: 5,
+            value: this.getSetting('timeboxCount'),
             fieldLabel: "Timebox Count",
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-timebox-count-input'),
@@ -920,9 +947,8 @@ Ext.define("committed-vs-delivered", {
             }
         }, {
             xtype: 'rallynumberfield',
-            name: 'planningWindow',
             itemId: 'planningWindowInput',
-            value: 2,
+            value: this.getSetting('planningWindow'),
             fieldLabel: 'Timebox planning window (days)',
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-planning-window-input'),
@@ -942,9 +968,8 @@ Ext.define("committed-vs-delivered", {
             }
         }, {
             xtype: 'rallycheckboxfield',
-            name: 'currentTimebox',
             itemId: 'currentTimeboxCheckbox',
-            value: true,
+            value: this.getSetting('currentTimebox'),
             fieldLabel: 'Show current, in-progress timebox',
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-current-timebox-checkbox'),
@@ -989,7 +1014,7 @@ Ext.define("committed-vs-delivered", {
             success: function (chartConfig) {
                 this._addGridboard(chartConfig);
                 this.setLoading(false);
-                this.onResize();
+                this.resizeChart();
             }
         });
     },
@@ -1003,7 +1028,143 @@ Ext.define("committed-vs-delivered", {
     },
 
     getSettingsFields: function () {
-        return { xtype: 'container' };
+        var timeboxTypeStore = Ext.create('Ext.data.Store', {
+            fields: ['name', 'value'],
+            data: [
+                { name: Constants.TIMEBOX_TYPE_ITERATION_LABEL, value: Constants.TIMEBOX_TYPE_ITERATION },
+                { name: Constants.TIMEBOX_TYPE_RELEASE_LABEL, value: Constants.TIMEBOX_TYPE_RELEASE },
+            ]
+        });
+        var typeStoreData = [
+            { name: 'User Story', value: 'HierarchicalRequirement' },
+            { name: 'Feature', value: 'PortfolioItem/Feature' },
+        ];
+
+        var artifactTypeStore = Ext.create('Ext.data.Store', {
+            fields: ['name', 'value'],
+            data: typeStoreData
+        });
+        return [{
+            xtype: 'combobox',
+            name: 'artifactType',
+            value: this.getSetting('artifactType'),
+            fieldLabel: 'Artifact type',
+            labelWidth: 150,
+            store: artifactTypeStore,
+            queryMode: 'local',
+            displayField: 'name',
+            valueField: 'value',
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                artifactType: newValue
+                            }
+                        });
+                        // Choice of artifact has changed
+                        this.setModelFieldsForType(newValue);
+                        // If Feature, also update timebox type to 'Release'
+                        var timeboxTypeControl = Ext.ComponentManager.get('timeboxType');
+                        if (this.isPiTypeSelected()) {
+                            timeboxTypeControl.setValue(Constants.TIMEBOX_TYPE_RELEASE);
+                            timeboxTypeControl.disable(); // User cannot pick other timeboxes for Features
+                        }
+                        else {
+                            timeboxTypeControl.enable();
+                        }
+                    }
+                }
+            }
+        },
+        {
+            xtype: 'combobox',
+            name: 'timeboxType',
+            id: 'timeboxType',
+            value: this.getSetting('timeboxType'),
+            fieldLabel: 'Timebox type',
+            labelWidth: 150,
+            store: timeboxTypeStore,
+            queryMode: 'local',
+            displayField: 'name',
+            valueField: 'value',
+            disabled: this.isPiTypeSelected(),
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                timeboxType: newValue
+                            }
+                        });
+                        // Choice of timebox has changed
+                        this.setTimeboxFieldsForType(newValue);
+                    }
+                }
+            }
+        },
+        {
+            xtype: 'rallynumberfield',
+            name: 'timeboxCount',
+            value: this.getSetting('timeboxCount'),
+            fieldLabel: "Timebox Count",
+            labelWidth: 150,
+            minValue: 1,
+            allowDecimals: false,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                timeboxCount: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }, {
+            xtype: 'rallynumberfield',
+            name: 'planningWindow',
+            value: this.getSetting('planningWindow'),
+            fieldLabel: 'Timebox planning window (days)',
+            labelWidth: 150,
+            minValue: 0,
+            allowDecimals: false,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                planningWindow: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }, {
+            xtype: 'rallycheckboxfield',
+            name: 'currentTimebox',
+            value: this.getSetting('currentTimebox'),
+            fieldLabel: 'Show current, in-progress timebox',
+            labelWidth: 150,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                currentTimebox: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        ]
     },
 
     _showError: function (msg) {
