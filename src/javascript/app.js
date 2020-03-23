@@ -102,7 +102,7 @@ Ext.define("committed-vs-delivered", {
             return;
         }
 
-        let collapseBtn = Ext.widget('rallybutton', {
+        this.collapseBtn = Ext.widget('rallybutton', {
             // xtype: 'rallybutton',
             text: 'Collapse',
             floating: true,
@@ -119,7 +119,7 @@ Ext.define("committed-vs-delivered", {
             }
         });
 
-        collapseBtn.showBy(this.down('#filterAndSettingsPanel'), 'tl-tl', [0, 3]);
+        this.collapseBtn.showBy(this.down('#filterAndSettingsPanel'), 'tl-tl', [0, 3]);
 
         this.addSettingItems();
 
@@ -1181,5 +1181,19 @@ Ext.define("committed-vs-delivered", {
 
     _showError: function (msg) {
         Rally.ui.notify.Notifier.showError({ message: msg });
+    },
+
+    showSettings: function () {
+        if (this.collapseBtn) {
+            this.collapseBtn.hide();
+        }
+        this.callParent(arguments);
+    },
+
+    hideSettings: function () {
+        if (this.collapseBtn) {
+            this.collapseBtn.show();
+        }
+        this.callParent(arguments);
     }
 });
