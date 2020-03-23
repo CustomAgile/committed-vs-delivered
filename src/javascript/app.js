@@ -76,7 +76,8 @@ Ext.define("committed-vs-delivered", {
             timeboxType: Constants.TIMEBOX_TYPE_ITERATION,
             timeboxCount: 5,
             planningWindow: 2,
-            currentTimebox: true
+            currentTimebox: true,
+            respectTimeboxFilteredPage: false
         }
     },
 
@@ -270,7 +271,6 @@ Ext.define("committed-vs-delivered", {
     },
 
     convertDataArrayToCSVText: function (data_array, requestedFieldHash) {
-
         var text = '';
         Ext.each(Object.keys(requestedFieldHash), function (key) {
             text += requestedFieldHash[key] + ',';
@@ -395,7 +395,7 @@ Ext.define("committed-vs-delivered", {
                                 }
 
                                 var timeboxScope = this.getContext().getTimeboxScope();
-                                if (timeboxScope && timeboxScope.getQueryFilter()) {
+                                if (timeboxScope && this.getSetting('respectTimeboxFilteredPage')) {
                                     if (timeboxScope.type === 'iteration' && this.modelName === 'PortfolioItem/Feature') { }
                                     else {
                                         filters = filters.and(timeboxScope.getQueryFilter());
@@ -805,12 +805,6 @@ Ext.define("committed-vs-delivered", {
         var gridArea = this.down('#grid-area')
         gridArea.removeAll();
 
-        // var filters = [];
-        // var timeboxScope = this.getContext().getTimeboxScope();
-        // if (timeboxScope && timeboxScope.getQueryFilter()) {
-        //     filters.push(timeboxScope.getQueryFilter());
-        // }
-
         var context = this.getContext();
         this.gridboard = gridArea.add({
             xtype: 'rallygridboard',
@@ -1158,6 +1152,24 @@ Ext.define("committed-vs-delivered", {
                         this.updateSettingsValues({
                             settings: {
                                 currentTimebox: newValue
+                            }
+                        });
+                    }
+                }
+            }
+        }, {
+            xtype: 'rallycheckboxfield',
+            name: 'respectTimeboxFilteredPage',
+            value: this.getSetting('respectTimeboxFilteredPage'),
+            fieldLabel: 'Filter data by timebox on timebox filtered pages',
+            labelWidth: 150,
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                respectTimeboxFilteredPage: newValue
                             }
                         });
                     }
