@@ -255,7 +255,7 @@ Ext.define("committed-vs-delivered", {
                                 text: 'Export to CSV...',
                                 handler: function () {
                                     var csvText = this.convertDataArrayToCSVText(this.currentData, this.getExportFieldsHash());
-                                    CArABU.technicalservices.FileUtilities.saveCSVToFile(csvText, 'comitted.csv');
+                                    CArABU.technicalservices.FileUtilities.saveCSVToFile(csvText, 'committed.csv');
                                 },
                                 scope: this
                             }]
