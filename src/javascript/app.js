@@ -360,7 +360,7 @@ Ext.define("committed-vs-delivered", {
             success: function (timeboxGroups) {
                 var promises = _.map(timeboxGroups, function (timeboxGroup) {
                     var timebox = timeboxGroup[0]; // Representative timebox for the group
-                    var planningWindowEndIso = Ext.Date.add(timebox.get(this.timeboxStartDateField), Ext.Date.DAY, this.down('#planningWindowInput')).toISOString();
+                    var planningWindowEndIso = Ext.Date.add(timebox.get(this.timeboxStartDateField), Ext.Date.DAY, this.down('#planningWindowInput').getValue()).toISOString();
                     var timeboxEndIso = timebox.get(this.timeboxEndDateField).toISOString();
                     var timeboxStartIso = timebox.get(this.timeboxStartDateField).toISOString();
                     var snapshotByOid = {}
