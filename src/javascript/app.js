@@ -131,7 +131,8 @@ Ext.define("committed-vs-delivered", {
                 'Tags',
                 'Milestones',
                 'c_EnterpriseApprovalEA',
-                'c_EAEpic'
+                'c_EAEpic',
+                'DisplayColor'
             ],
             filtersHidden: false,
             visibleTab: this.down('#artifactTypeCombo').getValue(),
@@ -730,7 +731,7 @@ Ext.define("committed-vs-delivered", {
             filters.push({
                 property: 'Project',
                 operator: 'in',
-                value: this.projects// Rally.util.Ref.getOidFromRef(dataContext.project)
+                value: this.projects
             });
         }
 

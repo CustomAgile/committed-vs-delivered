@@ -6,6 +6,7 @@
     "javascript": [
         "node_modules/@agile-central-technical-services/utils-shared-views/index.js",
         "node_modules/@customagile/ancestor-pi-multi-level-pi-app-filter/index.js",
+        "node_modules/@customagile/utils-field-renderer/field-renderer.js",
         "node_modules/@agile-central-technical-services/utils-ancestor-pi-inline-filter/index.js",
         "node_modules/@agile-central-technical-services/utils-field-picker/index.js",
         "node_modules/file-saver/FileSaver.min.js",
