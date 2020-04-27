@@ -16,7 +16,6 @@ Ext.define("committed-vs-delivered", {
             cls: 'blue-tabs',
             activeTab: 0,
             plain: true,
-            // hideMode: 'offsets',
             tabBar: {
                 margin: '0 0 0 100'
             },
@@ -53,6 +52,11 @@ Ext.define("committed-vs-delivered", {
                     html: '',
                     itemId: 'settingsTab',
                     padding: 10,
+                },
+                {
+                    title: 'Projects',
+                    itemId: 'projectsTab',
+                    padding: 10,
                 }
             ]
         },
@@ -74,7 +78,7 @@ Ext.define("committed-vs-delivered", {
         defaultSettings: {
             artifactType: 'HierarchicalRequirement',
             timeboxType: Constants.TIMEBOX_TYPE_ITERATION,
-            timeboxCount: 5,
+            timeboxCount: 3,
             planningWindow: 2,
             currentTimebox: true,
             respectTimeboxFilteredPage: false
@@ -86,21 +90,15 @@ Ext.define("committed-vs-delivered", {
     },
 
     currentData: [],
-    // settingsChanged: false,
 
     launch: async function () {
         Rally.data.wsapi.Proxy.superclass.timeout = 180000;
         Rally.data.wsapi.batch.Proxy.superclass.timeout = 180000;
+        this.labelWidth = 240;
 
         this.down('#grid-area').on('resize', this.resizeChart, this);
 
         this.loading = true;
-        this.projects = await this._getProjectList();
-
-        if (!this.projects || !this.projects.length) {
-            this._showError('Failed to fetch list of project IDs');
-            return;
-        }
 
         this.collapseBtn = Ext.widget('rallybutton', {
             // xtype: 'rallybutton',
@@ -122,19 +120,25 @@ Ext.define("committed-vs-delivered", {
         this.collapseBtn.showBy(this.down('#filterAndSettingsPanel'), 'tl-tl', [0, 3]);
 
         this.addSettingItems();
+        this.addProjectPicker();
+
+        this.down('#' + Utils.AncestorPiAppFilter.RENDER_AREA_ID).add({
+            xtype: 'rallybutton',
+            itemId: 'applyFiltersBtn',
+            handler: () => this.applyFilters(),
+            text: 'Apply filters',
+            cls: 'apply-filters-button',
+            disabled: true
+        });
 
         this.ancestorFilterPlugin = Ext.create('Utils.AncestorPiAppFilter', {
             ptype: 'UtilsAncestorPiAppFilter',
             pluginId: 'ancestorFilterPlugin',
-            settingsConfig: {},
-            whiteListFields: [
-                'Tags',
-                'Milestones',
-                'c_EnterpriseApprovalEA',
-                'c_EAEpic',
-                'DisplayColor'
-            ],
+            settingsConfig: { labelWidth: this.labelWidth },
+            whiteListFields: ['Tags', 'Milestones', 'c_EnterpriseApprovalEA', 'c_EAEpic', 'DisplayColor'],
             filtersHidden: false,
+            projectScope: 'current',
+            displayMultiLevelFilter: true,
             visibleTab: this.down('#artifactTypeCombo').getValue(),
             listeners: {
                 scope: this,
@@ -155,11 +159,13 @@ Ext.define("committed-vs-delivered", {
                                 change: this.filtersChange
                             });
 
+                            this.updateFilterTabText(plugin.getMultiLevelFilters());
+
                             this.loading = false;
-                            this.filtersChange();
+                            this.applyFilters();
                         },
                         failure(msg) {
-                            this._showError(msg);
+                            this.showError(msg);
                         },
                     });
                 },
@@ -174,7 +180,12 @@ Ext.define("committed-vs-delivered", {
         this.viewChange();
     },
 
-    filtersChange: async function () {
+    filtersChange: function (filters) {
+        this.down('#applyFiltersBtn').enable();
+        this.updateFilterTabText(filters);
+    },
+
+    applyFilters: async function () {
         this.ancestorAndMultiFilters = await this.ancestorFilterPlugin.getAllFiltersForType(this.down('#artifactTypeCombo').getValue(), true).catch((e) => {
             Rally.ui.notify.Notifier.showError({ message: (e.message || e) });
         });
@@ -273,23 +284,31 @@ Ext.define("committed-vs-delivered", {
 
     convertDataArrayToCSVText: function (data_array, requestedFieldHash) {
         var text = '';
+        var csv = [];
+        let header = [];
         Ext.each(Object.keys(requestedFieldHash), function (key) {
             text += requestedFieldHash[key] + ',';
+            header.push(requestedFieldHash[key]);
         });
         text = text.replace(/,$/, '\n');
+        csv.push(header);
 
         Ext.each(data_array, function (d) {
+            let row = [];
             Ext.each(Object.keys(requestedFieldHash), function (key) {
-                if (d[key]) {
-                    let val = CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ');
-                    text += Ext.String.format("\"{0}\",", val);
-                }
-                else {
-                    text += ',';
-                }
+                row.push(CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ', true));
+                // if (d[key]) {
+                //     let val = CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ');
+                //     text += Ext.String.format("\"{0}\",", val);
+                // }
+                // else {
+                //     text += ',';
+                // }
             }, this);
+            csv.push(row);
             text = text.replace(/,$/, '\n');
         }, this);
+        return Papa.unparse(csv);
         return text;
     },
 
@@ -354,11 +373,24 @@ Ext.define("committed-vs-delivered", {
         }
     },
 
-    _buildChartConfig: function () {
+    _buildChartConfig: function (status) {
         // Get the last N timeboxes
+        this.setLoading('Loading Timeboxes...');
         return this.getTimeboxes().then({
             scope: this,
             success: function (timeboxGroups) {
+                if (status.cancelLoad) {
+                    return;
+                }
+
+                if (!Object.keys(timeboxGroups).length) {
+                    this.showError('Failed to find timeboxes within the specified projects');
+                    this.setLoading(false);
+                    return;
+                }
+
+                this.setLoading('Loading Historical Data...');
+
                 var promises = _.map(timeboxGroups, function (timeboxGroup) {
                     var timebox = timeboxGroup[0]; // Representative timebox for the group
                     var planningWindowEndIso = Ext.Date.add(timebox.get(this.timeboxStartDateField), Ext.Date.DAY, this.down('#planningWindowInput').getValue()).toISOString();
@@ -368,13 +400,26 @@ Ext.define("committed-vs-delivered", {
                     return this.getSnapshotsFromTimeboxGroup(timeboxGroup).then({
                         scope: this,
                         success: function (snapshots) {
-                            if (!snapshots || snapshots.length == 0) {
+                            if (status.cancelLoad) {
+                                return;
+                            }
+
+                            if (!snapshots || snapshots.length === 0) {
                                 return {
                                     timebox: timebox,
-                                    artifactStore: null
+                                    artifacts: []
                                 }
                             }
                             else {
+                                snapshots = _.flatten(snapshots);
+
+                                if (snapshots.length === 0) {
+                                    return {
+                                        timebox: timebox,
+                                        artifacts: []
+                                    }
+                                }
+
                                 var oidQueries = [];
                                 _.each(snapshots, function (snapshot) {
                                     let oid = snapshot.get('ObjectID');
@@ -396,23 +441,67 @@ Ext.define("committed-vs-delivered", {
                                 }
 
                                 var timeboxScope = this.getContext().getTimeboxScope();
-                                if (timeboxScope && this.getSetting('respectTimeboxFilteredPage')) {
+                                if (timeboxScope && this.down('#respectTimeboxFilteredPageCheckbox').getValue()) {
                                     if (timeboxScope.type === 'iteration' && this.modelName === 'PortfolioItem/Feature') { }
                                     else {
                                         filters = filters.and(timeboxScope.getQueryFilter());
                                     }
                                 }
 
-                                var artifactStore = Ext.create('Rally.data.wsapi.Store', {
-                                    model: this.modelName,
-                                    fetch: this.getFieldsFromButton(),
-                                    autoLoad: false,
-                                    enablePostGet: true,
-                                    filters: filters
-                                });
-                                return artifactStore.load().then({
+                                let dataContext = this.getContext().getDataContext();
+                                let promises = [];
+                                let fetch = this.getFieldsFromButton();
+
+                                if (this.searchAllProjects()) {
+                                    dataContext.project = null;
+                                }
+                                if (this.useSpecificProjects()) {
+                                    dataContext.project = null;
+                                    dataContext.projectScopeUp = false;
+                                    dataContext.projectScopeDown = false;
+
+                                    for (let p of this.projectRefs) {
+                                        let context = Ext.clone(dataContext);
+                                        context.project = p;
+
+                                        let artifactStore = Ext.create('Rally.data.wsapi.Store', {
+                                            model: this.modelName,
+                                            context,
+                                            fetch,
+                                            autoLoad: false,
+                                            enablePostGet: true,
+                                            filters: filters,
+                                            limit: Infinity
+                                        });
+
+                                        promises.push(artifactStore.load());
+                                    }
+                                }
+                                else {
+                                    let artifactStore = Ext.create('Rally.data.wsapi.Store', {
+                                        model: this.modelName,
+                                        context: dataContext,
+                                        fetch,
+                                        autoLoad: false,
+                                        enablePostGet: true,
+                                        filters: filters,
+                                        limit: Infinity
+                                    });
+
+                                    promises.push(artifactStore.load());
+                                }
+
+                                this.setLoading('Loading Artifact Data...');
+
+                                return Deft.Promise.all(promises).then({
                                     scope: this,
                                     success: function (artifacts) {
+                                        if (status.cancelLoad) {
+                                            return;
+                                        }
+
+                                        artifacts = _.flatten(artifacts);
+
                                         // Augment each artifact with Planned, Delivered and timebox Added Date
                                         _.each(artifacts, function (artifact) {
                                             var snapshot = snapshotByOid[artifact.get('ObjectID')];
@@ -439,16 +528,21 @@ Ext.define("committed-vs-delivered", {
                                             artifact.set('timeboxEndDate', timebox.get(this.timeboxEndDateField))
                                         }, this);
                                         return {
-                                            timebox: timebox,
-                                            artifactStore: artifactStore
+                                            timebox,
+                                            artifacts
                                         }
                                     },
                                     failure: function (e) {
-                                        this._showError('Failed while loading Features');
+                                        this.showError(e, 'Failed while loading artifact data');
                                         this.setLoading(false);
                                     }
                                 });
                             }
+                        },
+                        failure: function (e) {
+                            this.setLoading(false);
+                            this.showError(e, 'Failed while loading historical data. Request may have timed out.');
+                            status.cancelLoad;
                         }
                     })
                 }, this);
@@ -457,6 +551,10 @@ Ext.define("committed-vs-delivered", {
         }).then({
             scope: this,
             success: function (data) {
+                if (status.cancelLoad) {
+                    return;
+                }
+
                 this.data = data;
                 return this.getChartConfig(this.data);
             }
@@ -464,6 +562,10 @@ Ext.define("committed-vs-delivered", {
     },
 
     getChartConfig: function (data) {
+        if (!data) {
+            return;
+        }
+
         var sortedData = _.sortBy(data, function (datum) {
             return datum.timebox.get(this.timeboxStartDateField).toISOString();
         }, this);
@@ -488,12 +590,13 @@ Ext.define("committed-vs-delivered", {
             }
             timeboxNames.push(timeboxName);
 
-            if (datum.artifactStore) {
-                datum.artifactStore.each(function (artifact) {
+            if (datum.artifacts) {
+                for (let artifact of datum.artifacts) {
                     if (artifact.get('AcceptedBeforeTimeboxStart')) {
                         // Special case. The artifact was accepted before the timebox started. The work occurred
                         // *before* this timebox started and is NOT therefore included in the timebox as committed
                         // or delivered.
+                        console.log('AcceptedBeforeTimeboxStart', artifact);
                     }
                     else {
                         this.currentData.push(artifact.data);
@@ -510,7 +613,7 @@ Ext.define("committed-vs-delivered", {
                             }
                         }
                     }
-                }, this);
+                };
             }
             plannedCommitted.push(pc);
             plannedDelivered.push(pd);
@@ -622,13 +725,19 @@ Ext.define("committed-vs-delivered", {
         if (this.down('#currentTimeboxCheckbox').getValue()) {
             timeboxFilterProperty = this.timeboxStartDateField;
         }
+        let dataContext = this.getContext().getDataContext();
+        dataContext.projectScopeDown = false;
+        dataContext.projectScopeUp = false;
+        let picker = this.down('#projectPicker');
+        let projects = picker.getValue();
+        if (projects.length) {
+            dataContext.project = projects[0].get('_ref');
+        }
+
         return Ext.create('Rally.data.wsapi.Store', {
             model: this.timeboxType,
             autoLoad: false,
-            context: {
-                projectScopeDown: false,
-                projectScopeUp: false
-            },
+            context: dataContext,
             sorters: [{
                 property: timeboxFilterProperty,
                 direction: 'DESC'
@@ -655,7 +764,16 @@ Ext.define("committed-vs-delivered", {
                     }]);
                 }, this);
                 if (timeboxFilter.length) {
-                    return Rally.data.wsapi.Filter.or(timeboxFilter)
+                    timeboxFilter = Rally.data.wsapi.Filter.or(timeboxFilter);
+
+                    if (this.useSpecificProjects()) {
+                        timeboxFilter = timeboxFilter.and(new Rally.data.wsapi.Filter({
+                            property: 'Project',
+                            operator: 'in',
+                            value: this.projectRefs
+                        }));
+                    }
+                    return timeboxFilter;
                 }
                 else {
                     return null;
@@ -665,17 +783,25 @@ Ext.define("committed-vs-delivered", {
             scope: this,
             success: function (timeboxFilter) {
                 if (timeboxFilter) {
+                    let context = this.getContext().getDataContext();
+                    if (this.useSpecificProjects()) {
+                        context.project = null;
+                    }
+
                     return Ext.create('Rally.data.wsapi.Store', {
                         model: this.timeboxType,
+                        context: context,
                         autoLoad: false,
                         fetch: ['ObjectID', this.timeboxStartDateField, this.timeboxEndDateField, 'Name'],
                         enablePostGet: true,
+                        limit: 10000,
+                        pageSize: 10000,
                         sorters: [{
                             property: this.timeboxEndDateField,
                             direction: 'DESC'
                         }],
                         filters: [timeboxFilter]
-                    }).load()
+                    }).load();
                 }
                 else {
                     return [];
@@ -716,11 +842,6 @@ Ext.define("committed-vs-delivered", {
             property: '_TypeHierarchy',
             value: this.modelName
         },
-        {
-            property: this.timeboxType,
-            operator: 'in',
-            value: timeboxOids
-        },
             dateFilter
         ];
 
@@ -728,6 +849,9 @@ Ext.define("committed-vs-delivered", {
             dataContext.project = null;
         }
         else {
+            if (this.useSpecificProjects()) {
+                dataContext.project = null;
+            }
             filters.push({
                 property: 'Project',
                 operator: 'in',
@@ -735,23 +859,66 @@ Ext.define("committed-vs-delivered", {
             });
         }
 
-        var store = Ext.create('Rally.data.lookback.SnapshotStore', {
-            autoLoad: false,
-            context: dataContext,
-            fetch: [this.timeboxType, '_ValidFrom', '_ValidTo', 'ObjectID'],
-            hydrate: [this.timeboxType],
-            remoteSort: false,
-            compress: true,
-            enablePostGet: true,
-            filters: filters,
-        });
-        return store.load();
+        let promises = [];
+
+        if (timeboxOids.length <= 4) {
+            filters.push({
+                property: this.timeboxType,
+                operator: 'in',
+                value: timeboxOids
+            });
+
+            let store = Ext.create('Rally.data.lookback.SnapshotStore', {
+                autoLoad: false,
+                context: dataContext,
+                fetch: [this.timeboxType, '_ValidFrom', '_ValidTo', 'ObjectID'],
+                hydrate: [this.timeboxType],
+                remoteSort: false,
+                compress: true,
+                enablePostGet: true,
+                filters: filters,
+                limit: 40000,
+                includeTotalResultCount: false,
+                removeUnauthorizedSnapshots: true
+            });
+
+            promises.push(store.load());
+        }
+        else {
+            let chunks = this.chunk(timeboxOids, 4);
+
+            for (let chunk of chunks) {
+                let newFilter = filters.concat({
+                    property: this.timeboxType,
+                    operator: 'in',
+                    value: chunk
+                });
+
+                let store = Ext.create('Rally.data.lookback.SnapshotStore', {
+                    autoLoad: false,
+                    context: dataContext,
+                    fetch: [this.timeboxType, '_ValidFrom', '_ValidTo', 'ObjectID'],
+                    hydrate: [this.timeboxType],
+                    remoteSort: false,
+                    compress: true,
+                    enablePostGet: true,
+                    filters: newFilter,
+                    limit: 40000,
+                    includeTotalResultCount: false,
+                    removeUnauthorizedSnapshots: true
+                });
+
+                promises.push(store.load());
+            }
+        }
+
+        return Deft.Promise.all(promises);
     },
 
-    async _getProjectList() {
+    async _getScopedProjectList() {
         let projectStore = Ext.create('Rally.data.wsapi.Store', {
             model: 'Project',
-            fetch: ['Name', 'ObjectID', 'Children'],
+            fetch: ['Name', 'ObjectID', 'Children', 'Parent'],
             filters: [{ property: 'ObjectID', value: this.getContext().getProject().ObjectID }],
             limit: 1,
             pageSize: 1,
@@ -759,16 +926,50 @@ Ext.define("committed-vs-delivered", {
         });
 
         let results = await projectStore.load();
-        if (results) {
-            let projects = await this._getAllChildProjects(results);
-            let projectIds = _.map(projects, (p) => {
+        let parents = [];
+        let children = [];
+        if (results && results.length) {
+            if (this.getContext().getProjectScopeDown()) {
+                children = await this._getAllChildProjects(results);
+            }
+
+            if (this.getContext().getProjectScopeUp()) {
+                parents = await this._getAllParentProjects(results[0]);
+            }
+
+            if (children.length) {
+                results = children.concat(parents);
+            }
+            else if (parents.length) {
+                results = parents;
+            }
+
+            this.projects = _.map(results, (p) => {
                 return p.get('ObjectID');
             });
-            return projectIds;
+
+            this.projectRefs = _.map(results, (p) => {
+                return p.get('_ref');
+            });
         }
-        else {
-            return [];
+        this.projects = [];
+        this.projectRefs = [];
+    },
+
+    async _getSpecificProjectList() {
+        let projects = this.projectPicker.getValue();
+
+        if (this.down('#includeChildProjectsCheckbox').getValue()) {
+            projects = await this._getAllChildProjects(projects);
         }
+
+        this.projects = _.map(projects, (p) => {
+            return p.get('ObjectID');
+        });
+
+        this.projectRefs = _.map(projects, (p) => {
+            return p.get('_ref');
+        });
     },
 
     async _getAllChildProjects(allRoots = [], fetch = ['Name', 'Children', 'ObjectID']) {
@@ -784,6 +985,27 @@ Ext.define("committed-vs-delivered", {
         finalResponse.forEach(s => removeDupes[s.get('_ref')] = s);
         finalResponse = Object.values(removeDupes);
         return finalResponse;
+    },
+
+    async _getAllParentProjects(p) {
+        let projectStore = Ext.create('Rally.data.wsapi.Store', {
+            model: 'Project',
+            fetch: ['Name', 'ObjectID', 'Parent'],
+            filters: [{ property: 'ObjectID', value: p.get('Parent').ObjectID }],
+            limit: 1,
+            pageSize: 1,
+            autoLoad: false
+        });
+
+        let results = await projectStore.load();
+        if (results && results.length) {
+            if (results[0].get('Parent')) {
+                let parents = await this._getAllParentProjects(results[0]);
+                return [p].concat(parents);
+            }
+            return [p, results[0]];
+        }
+        return [p];
     },
 
     async _wrap(deferred) {
@@ -803,7 +1025,7 @@ Ext.define("committed-vs-delivered", {
     },
 
     _addGridboard: function (chartConfig) {
-        var gridArea = this.down('#grid-area')
+        var gridArea = this.down('#grid-area');
         gridArea.removeAll();
 
         var context = this.getContext();
@@ -854,7 +1076,7 @@ Ext.define("committed-vs-delivered", {
             stateId: context.getScopedStateId('committedvdelivered-artifact-type-combo'),
             stateEvents: ['change'],
             fieldLabel: 'Artifact type',
-            labelWidth: 200,
+            labelWidth: this.labelWidth,
             store: artifactTypeStore,
             queryMode: 'local',
             displayField: 'name',
@@ -885,7 +1107,7 @@ Ext.define("committed-vs-delivered", {
                     }
 
                     if (newValue != oldValue) {
-                        this.showApplyBtn();
+                        this.showApplySettingsBtn();
                     }
                 }
             }
@@ -896,7 +1118,7 @@ Ext.define("committed-vs-delivered", {
             value: this.getSetting('timeboxType'),
             disabled: this.getSetting('artifactType') === 'PortfolioItem/Feature',
             fieldLabel: 'Timebox type',
-            labelWidth: 200,
+            labelWidth: this.labelWidth,
             store: timeboxTypeStore,
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-timebox-type-combo'),
@@ -914,7 +1136,7 @@ Ext.define("committed-vs-delivered", {
                     }
 
                     if (newValue != oldValue) {
-                        this.showApplyBtn();
+                        this.showApplySettingsBtn();
                     }
                 }
             }
@@ -927,7 +1149,7 @@ Ext.define("committed-vs-delivered", {
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-timebox-count-input'),
             stateEvents: ['change'],
-            labelWidth: 200,
+            labelWidth: this.labelWidth,
             minValue: 1,
             allowDecimals: false,
             listeners: {
@@ -937,7 +1159,7 @@ Ext.define("committed-vs-delivered", {
                         return;
                     }
 
-                    this.showApplyBtn();
+                    this.showApplySettingsBtn();
                 }
             }
         }, {
@@ -948,7 +1170,7 @@ Ext.define("committed-vs-delivered", {
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-planning-window-input'),
             stateEvents: ['change'],
-            labelWidth: 200,
+            labelWidth: this.labelWidth,
             minValue: 0,
             allowDecimals: false,
             listeners: {
@@ -958,7 +1180,7 @@ Ext.define("committed-vs-delivered", {
                         return;
                     }
 
-                    this.showApplyBtn();
+                    this.showApplySettingsBtn();
                 }
             }
         }, {
@@ -969,7 +1191,7 @@ Ext.define("committed-vs-delivered", {
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-current-timebox-checkbox'),
             stateEvents: ['change'],
-            labelWidth: 200,
+            labelWidth: this.labelWidth,
             listeners: {
                 scope: this,
                 change: function (field, newValue, oldValue) {
@@ -978,12 +1200,32 @@ Ext.define("committed-vs-delivered", {
                     }
 
                     if (newValue != oldValue) {
-                        this.showApplyBtn();
+                        this.showApplySettingsBtn();
                     }
                 }
             }
-        },
-        {
+        }, {
+            xtype: 'rallycheckboxfield',
+            itemId: 'respectTimeboxFilteredPageCheckbox',
+            value: this.getSetting('respectTimeboxFilteredPage'),
+            fieldLabel: 'Respect filter on timebox filtered pages',
+            labelWidth: this.labelWidth,
+            stateful: true,
+            stateId: context.getScopedStateId('committedvdelivered-respect-timebox-page-checkbox'),
+            stateEvents: ['change'],
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (this.loading) {
+                        return;
+                    }
+
+                    if (newValue != oldValue) {
+                        this.showApplySettingsBtn();
+                    }
+                }
+            }
+        }, {
             xtype: 'rallybutton',
             itemId: 'applySettingsBtn',
             text: 'Apply',
@@ -996,22 +1238,172 @@ Ext.define("committed-vs-delivered", {
         ]);
     },
 
-    showApplyBtn: function () {
+    addProjectPicker: function () {
+        this.down('#projectsTab').add(
+            {
+                xtype: 'component',
+                html: `If you require a report spanning across multiple project hierarchies, use this project picker to specify where the data will be pulled from. If blank, app will respect user's current project scoping.`
+            },
+            {
+                xtype: 'customagilepillpicker',
+                itemId: 'projectPicker',
+                hidden: false,
+                statefulKey: `${this.getAppId()}-${this.appName}-${this.getContext().getProject()._refObjectUUID}-project`,
+                defaultToRecentTimeboxes: false,
+                listeners: {
+                    recordremoved: this.showApplyProjectsBtn,
+                    scope: this
+                },
+                pickerCfg: {
+                    xtype: 'customagilemultiselectproject',
+                    width: 350,
+                    margin: '10 0 0 0',
+                    listeners: {
+                        blur: this.showApplyProjectsBtn,
+                        scope: this
+                    }
+                }
+            },
+            {
+                xtype: 'rallycheckboxfield',
+                itemId: 'includeChildProjectsCheckbox',
+                fieldLabel: 'Show work from child projects',
+                stateful: true,
+                stateId: this.getContext().getScopedStateId('committedvdelivered-scope-down-checkbox'),
+                stateEvents: ['change'],
+                labelWidth: 200,
+                listeners: {
+                    scope: this,
+                    change: this.showApplyProjectsBtn
+                }
+            },
+            {
+                xtype: 'rallybutton',
+                itemId: 'applyProjectsBtn',
+                text: 'Apply',
+                margin: '10 0 0 0',
+                hidden: true,
+                handler: function (btn) {
+                    btn.hide();
+                    this.projectListChange();
+                }.bind(this)
+            }
+        );
+    },
+
+    showApplySettingsBtn: function () {
         this.down('#applySettingsBtn').show();
     },
 
-    viewChange: function () {
+    showApplyProjectsBtn: function () {
+        this.down('#applyProjectsBtn') && this.down('#applyProjectsBtn').show();
+    },
+
+    updateFilterTabText: function (filters) {
+        var totalFilters = 0;
+        _.each(filters, function (filter) {
+            totalFilters += filter.length;
+        });
+
+        var titleText = totalFilters ? `FILTERS (${totalFilters})` : 'FILTERS';
+        var tab = this.down('#filterAndSettingsPanel').child('#filtersTab');
+
+        if (tab) { tab.setTitle(titleText); }
+    },
+
+    updateProjectTabText: function () {
+        let picker = this.down('#projectPicker');
+        totalProjects = picker.getValue().length;
+
+        var titleText = totalProjects ? `PROJECTS (${totalProjects})` : 'PROJECTS';
+        var tab = this.down('#filterAndSettingsPanel').child('#projectsTab');
+
+        if (tab) { tab.setTitle(titleText); }
+    },
+
+    viewChange: async function () {
+        var gridArea = this.down('#grid-area');
+        gridArea.removeAll();
         this.setLoading(true);
         this.addControls();
+        this.down('#applyFiltersBtn').disable();
+        this.down('#applySettingsBtn').hide();
+        this.down('#applyProjectsBtn').hide();
+        this.updateProjectTabText();
+        let status = this.cancelPreviousLoad();
+        this.projectPicker = this.down('#projectPicker');
+        let artifactType = this.down('#artifactTypeCombo').getValue();
 
-        this._buildChartConfig().then({
+        if (this.artifactType) {
+            if (this.artifactType !== artifactType) {
+                this.artifactType = artifactType;
+                this.ancestorAndMultiFilters = await this.ancestorFilterPlugin.getAllFiltersForType(this.artifactType, true).catch((e) => {
+                    Rally.ui.notify.Notifier.showError({ message: (e.message || e) });
+                });
+
+                if (!this.ancestorAndMultiFilters) {
+                    return;
+                }
+            }
+        }
+        else {
+            this.artifactType = this.down('#artifactTypeCombo').getValue();
+        }
+
+        if (!this.projects && !this.searchAllProjects()) {
+            await this.loadProjects();
+
+            if (!this.projects || !this.projects.length) {
+                this.showError('Failed to fetch list of project IDs');
+                this.setLoading(false);
+                return;
+            }
+        }
+
+        this._buildChartConfig(status).then({
             scope: this,
             success: function (chartConfig) {
+                if (status.cancelLoad) {
+                    return;
+                }
+
                 this._addGridboard(chartConfig);
                 this.setLoading(false);
                 this.resizeChart();
             }
         });
+    },
+
+    async loadProjects() {
+        this.setLoading('Loading Project List...');
+
+        if (this.useSpecificProjects()) {
+            await this._getSpecificProjectList();
+        }
+        else {
+            if (this.getContext().getProjectScopeDown() || this.getContext().getProjectScopeUp()) {
+                await this._getScopedProjectList();
+            }
+            else {
+                this.projects = [this.getContext().getProject().ObjectID];
+                this.projectRefs = [this.getContext().getProject()._ref];
+            }
+        }
+    },
+
+    async projectListChange() {
+        await this.loadProjects();
+        this.viewChange();
+    },
+
+    cancelPreviousLoad: function () {
+        if (this.globalStatus) {
+            this.globalStatus.cancelLoad = true;
+        }
+
+        let newStatus = { cancelLoad: false };
+        this.globalStatus = newStatus;
+        return newStatus;
     },
 
     searchAllProjects() {
@@ -1044,7 +1436,7 @@ Ext.define("committed-vs-delivered", {
             name: 'artifactType',
             value: this.getSetting('artifactType'),
             fieldLabel: 'Artifact type',
-            labelWidth: 150,
+            labelWidth: this.labelWidth,
             store: artifactTypeStore,
             queryMode: 'local',
             displayField: 'name',
@@ -1079,7 +1471,7 @@ Ext.define("committed-vs-delivered", {
             id: 'timeboxType',
             value: this.getSetting('timeboxType'),
             fieldLabel: 'Timebox type',
-            labelWidth: 150,
+            labelWidth: this.labelWidth,
             store: timeboxTypeStore,
             queryMode: 'local',
             displayField: 'name',
@@ -1105,7 +1497,7 @@ Ext.define("committed-vs-delivered", {
             name: 'timeboxCount',
             value: this.getSetting('timeboxCount'),
             fieldLabel: "Timebox Count",
-            labelWidth: 150,
+            labelWidth: this.labelWidth,
             minValue: 1,
             allowDecimals: false,
             listeners: {
@@ -1125,7 +1517,7 @@ Ext.define("committed-vs-delivered", {
             name: 'planningWindow',
             value: this.getSetting('planningWindow'),
             fieldLabel: 'Timebox planning window (days)',
-            labelWidth: 150,
+            labelWidth: this.labelWidth,
             minValue: 0,
             allowDecimals: false,
             listeners: {
@@ -1145,7 +1537,7 @@ Ext.define("committed-vs-delivered", {
             name: 'currentTimebox',
             value: this.getSetting('currentTimebox'),
             fieldLabel: 'Show current, in-progress timebox',
-            labelWidth: 150,
+            labelWidth: this.labelWidth,
             listeners: {
                 scope: this,
                 change: function (field, newValue, oldValue) {
@@ -1162,8 +1554,8 @@ Ext.define("committed-vs-delivered", {
             xtype: 'rallycheckboxfield',
             name: 'respectTimeboxFilteredPage',
             value: this.getSetting('respectTimeboxFilteredPage'),
-            fieldLabel: 'Filter data by timebox on timebox filtered pages',
-            labelWidth: 150,
+            fieldLabel: 'Respect filter on timebox filtered pages',
+            labelWidth: this.labelWidth,
             listeners: {
                 scope: this,
                 change: function (field, newValue, oldValue) {
@@ -1180,8 +1572,74 @@ Ext.define("committed-vs-delivered", {
         ]
     },
 
-    _showError: function (msg) {
-        Rally.ui.notify.Notifier.showError({ message: msg });
+    useSpecificProjects() {
+        return !!this.projectPicker.getValue().length;
+    },
+
+    showError(msg) {
+        Rally.ui.notify.Notifier.showError({ message: this.parseError(msg) });
+    },
+
+    parseError(e, defaultMessage) {
+        if (typeof e === 'string' && e.length) {
+            return e;
+        }
+        if (e.message && e.message.length) {
+            return e.message;
+        }
+        if (e.exception && e.error && e.error.errors && e.error.errors.length) {
+            if (e.error.errors[0].length) {
+                return e.error.errors[0];
+            } else {
+                if (e.error && e.error.response && e.error.response.status) {
+                    return `${defaultMessage} (Status ${e.error.response.status})`;
+                }
+            }
+        }
+        if (e.exceptions && e.exceptions.length && e.exceptions[0].error) {
+            return e.exceptions[0].error.statusText;
+        }
+        return defaultMessage;
+    },
+
+    baseSlice: function (array, start, end) {
+        var index = -1,
+            length = array.length;
+
+        if (start < 0) {
+            start = -start > length ? 0 : (length + start);
+        }
+        end = end > length ? length : end;
+        if (end < 0) {
+            end += length;
+        }
+        length = start > end ? 0 : ((end - start) >>> 0);
+        start >>>= 0;
+
+        var result = Array(length);
+        while (++index < length) {
+            result[index] = array[index + start];
+        }
+        return result;
+    },
+
+    chunk: function (array, size) {
+        var length = array == null ? 0 : array.length;
+        if (!length || size < 1) {
+            return [];
+        }
+        var index = 0,
+            resIndex = 0,
+            result = Array(Math.ceil(length / size));
+
+        while (index < length) {
+            result[resIndex++] = this.baseSlice(array, index, (index += size));
+        }
+        return result;
+    },
+
+    setLoading(msg) {
+        this.down('#grid-area').setLoading(msg);
     },
 
     showSettings: function () {

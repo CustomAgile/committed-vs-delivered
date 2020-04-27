@@ -11,6 +11,7 @@
         "node_modules/@agile-central-technical-services/utils-field-picker/index.js",
         "node_modules/file-saver/FileSaver.min.js",
         "node_modules/@agile-central-technical-services/utils-file-utils/index.js",
+        "node_modules/papaparse/papaparse.min.js",
         "src/javascript/utils/*.js",
         "src/javascript/*.js"
     ],
