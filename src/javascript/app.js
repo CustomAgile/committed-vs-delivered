@@ -10,6 +10,8 @@ Ext.define("committed-vs-delivered", {
         {
             xtype: 'tabpanel',
             itemId: 'filterAndSettingsPanel',
+            stateful: true,
+            stateId: 'committed-v-delivered-filter-and-settings-panel',
             header: false,
             collapsible: true,
             animCollapse: false,
@@ -80,6 +82,7 @@ Ext.define("committed-vs-delivered", {
             timeboxType: Constants.TIMEBOX_TYPE_ITERATION,
             timeboxCount: 3,
             planningWindow: 2,
+            aggregationType: 'count',
             currentTimebox: true,
             respectTimeboxFilteredPage: false
         }
@@ -101,15 +104,14 @@ Ext.define("committed-vs-delivered", {
         this.loading = true;
 
         this.collapseBtn = Ext.widget('rallybutton', {
-            // xtype: 'rallybutton',
-            text: 'Collapse',
+            text: this.down('#filterAndSettingsPanel').getCollapsed() ? 'Expand Filters and Settings' : 'Collapse',
             floating: true,
             shadow: false,
             height: 21,
             handler: (btn) => {
                 this.down('#filterAndSettingsPanel').toggleCollapse();
                 if (btn.getText() === 'Collapse') {
-                    btn.setText('Expand');
+                    btn.setText('Expand Filters and Settings');
                 }
                 else {
                     btn.setText('Collapse');
@@ -174,7 +176,6 @@ Ext.define("committed-vs-delivered", {
         this.addPlugin(this.ancestorFilterPlugin);
     },
 
-
     onTimeboxScopeChange: function () {
         this.callParent(arguments);
         this.viewChange();
@@ -221,7 +222,6 @@ Ext.define("committed-vs-delivered", {
      * have initial values
      */
     addControls: function () {
-        // var filterDeferred = Ext.create('Deft.Deferred');
         var context = this.getContext();
         var controlsArea = this.down('#controls-area');
         controlsArea.removeAll();
@@ -231,7 +231,7 @@ Ext.define("committed-vs-delivered", {
                 flex: 1
             }, {
                 xtype: 'tsfieldpickerbutton',
-                margin: '0 10 0 0',
+                margin: '0 10 5 0',
                 toolTipConfig: {
                     html: 'Columns to Export',
                     anchor: 'top'
@@ -297,13 +297,6 @@ Ext.define("committed-vs-delivered", {
             let row = [];
             Ext.each(Object.keys(requestedFieldHash), function (key) {
                 row.push(CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ', true));
-                // if (d[key]) {
-                //     let val = CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ');
-                //     text += Ext.String.format("\"{0}\",", val);
-                // }
-                // else {
-                //     text += ',';
-                // }
             }, this);
             csv.push(row);
             text = text.replace(/,$/, '\n');
@@ -327,8 +320,15 @@ Ext.define("committed-vs-delivered", {
         // is next to the derirved fields instead of in the first column of export.
         // Use _.unique to remove duplicate as that field is also always selected.
         fields = _.without(fields, this.acceptedDateField);
+
+        let aggregationType = this.down('#aggregationTypeCombo').getValue();
+        if (aggregationType !== 'count') {
+            fields.push(aggregationType);
+        }
+
         fields.push(this.acceptedDateField);
         fields = fields.concat(Constants.DERIVED_FIELDS);
+
         return _.reduce(fields, function (accum, field) {
             accum[field] = this.headerName(field);
             return accum;
@@ -451,6 +451,11 @@ Ext.define("committed-vs-delivered", {
                                 let dataContext = this.getContext().getDataContext();
                                 let promises = [];
                                 let fetch = this.getFieldsFromButton();
+                                let aggregationType = this.down('#aggregationTypeCombo').getValue();
+
+                                if (aggregationType !== 'count') {
+                                    fetch.push(aggregationType);
+                                }
 
                                 if (this.searchAllProjects()) {
                                     dataContext.project = null;
@@ -574,6 +579,7 @@ Ext.define("committed-vs-delivered", {
         var plannedDelivered = [];
         var unplannedComitted = [];
         var unplannedDelivered = [];
+        let aggregationType = this.down('#aggregationTypeCombo').getValue();
         this.currentData = [];
         _.each(sortedData, function (datum, index, collection) {
             var pc = 0,
@@ -592,6 +598,7 @@ Ext.define("committed-vs-delivered", {
 
             if (datum.artifacts) {
                 for (let artifact of datum.artifacts) {
+                    let artifactVal = aggregationType === 'count' ? 1 : artifact.get(aggregationType) || 0;
                     if (artifact.get('AcceptedBeforeTimeboxStart')) {
                         // Special case. The artifact was accepted before the timebox started. The work occurred
                         // *before* this timebox started and is NOT therefore included in the timebox as committed
@@ -601,15 +608,15 @@ Ext.define("committed-vs-delivered", {
                     else {
                         this.currentData.push(artifact.data);
                         if (artifact.get('Planned')) {
-                            pc++; // Committed and planned
+                            pc += artifactVal; // Committed and planned
                             if (artifact.get('Delivered')) {
-                                pd++ // Planned and delivered
+                                pd += artifactVal; // Planned and delivered
                             }
                         }
                         else {
-                            uc++; // Comitted and unplanned 
+                            uc += artifactVal; // Comitted and unplanned 
                             if (artifact.get('Delivered')) {
-                                ud++ // Unplanned and delivered
+                                ud += artifactVal // Unplanned and delivered
                             }
                         }
                     }
@@ -621,10 +628,8 @@ Ext.define("committed-vs-delivered", {
             unplannedDelivered.push(ud);
         }, this);
 
-        var title = "Stories";
-        if (this.isPiTypeSelected()) {
-            title = this.lowestPiType.get('Name') + 's';
-        }
+        var title = this.isPiTypeSelected() ? this.lowestPiType.get('Name') + 's' : 'Stories';
+
         return {
             xtype: 'rallychart',
             loadMask: false,
@@ -638,7 +643,7 @@ Ext.define("committed-vs-delivered", {
                     animation: false
                 },
                 title: {
-                    text: title + ' ' + Constants.CHART_TITLE + ' by ' + this.timeboxType
+                    text: title + ' ' + Constants.CHART_TITLE + ' by ' + this.timeboxType + (aggregationType === 'count' ? '' : ' (' + this.down('#aggregationTypeCombo').getDisplayValue() + ')')
                 },
                 legend: {
                     layout: 'vertical',
@@ -952,8 +957,10 @@ Ext.define("committed-vs-delivered", {
                 return p.get('_ref');
             });
         }
-        this.projects = [];
-        this.projectRefs = [];
+        else {
+            this.projects = [];
+            this.projectRefs = [];
+        }
     },
 
     async _getSpecificProjectList() {
@@ -1044,7 +1051,8 @@ Ext.define("committed-vs-delivered", {
     },
 
     isPiTypeSelected: function () {
-        return this.modelName.toLowerCase().indexOf('portfolioitem') > -1;
+        let type = this.modelName || '';
+        return type.toLowerCase().indexOf('portfolioitem') > -1;
     },
 
     addSettingItems: function () {
@@ -1065,13 +1073,29 @@ Ext.define("committed-vs-delivered", {
             data: typeStoreData
         });
 
+        var aggregationTypeStore = Ext.create('Ext.data.Store', {
+            fields: ['name', 'value'],
+            data: [
+                { name: 'Count', value: 'count' },
+                { name: 'Accepted Leaf Story Count', value: 'AcceptedLeafStoryCount' },
+                { name: 'Accepted Leaf Story Plan Estimate Total', value: 'AcceptedLeafStoryPlanEstimateTotal' },
+                { name: 'Actuals Total', value: 'Actuals' },
+                { name: 'Estimate Total', value: 'Estimate' },
+                { name: 'Leaf Story Count', value: 'LeafStoryCount' },
+                { name: 'Leaf Story Plan Estimate Total', value: 'LeafStoryPlanEstimateTotal' },
+                { name: 'Plan Estimate Total', value: 'PlanEstimate' },
+                { name: 'Preliminary Estimate Total', value: 'PreliminaryEstimateValue' },
+                { name: 'Refined Estimate Total', value: 'RefinedEstimate' }
+            ]
+        });
+
         let context = this.getContext();
 
         this.down('#settingsTab').add([{
             xtype: 'combobox',
-            name: 'artifactType',
             itemId: 'artifactTypeCombo',
-            value: this.getSetting('artifactType'),
+            name: 'artifactType',
+            value: this.getSetting('artifactType') || this.defaultSettings.artifactType,
             stateful: true,
             stateId: context.getScopedStateId('committedvdelivered-artifact-type-combo'),
             stateEvents: ['change'],
@@ -1083,7 +1107,7 @@ Ext.define("committed-vs-delivered", {
             valueField: 'value',
             listeners: {
                 scope: this,
-                change: function (field, newValue, oldValue) {
+                change: function (combo, newValue, oldValue) {
                     this.setModelFieldsForType(newValue);
 
                     // If Feature, also update timebox type to 'Release' and disable
@@ -1100,7 +1124,9 @@ Ext.define("committed-vs-delivered", {
                                 timeboxTypeControl.enable();
                             }
                         }
-                    }, 200);
+
+                        this.updateAggregationTypeCombo();
+                    }, 300);
 
                     if (this.loading) {
                         return;
@@ -1113,8 +1139,8 @@ Ext.define("committed-vs-delivered", {
             }
         },
         {
+            itemId: 'timeboxTypeCombo',
             xtype: 'combobox',
-            id: 'timeboxTypeCombo',
             value: this.getSetting('timeboxType'),
             disabled: this.getSetting('artifactType') === 'PortfolioItem/Feature',
             fieldLabel: 'Timebox type',
@@ -1128,7 +1154,7 @@ Ext.define("committed-vs-delivered", {
             valueField: 'value',
             listeners: {
                 scope: this,
-                change: function (field, newValue, oldValue) {
+                change: function (combo, newValue, oldValue) {
                     this.setTimeboxFieldsForType(newValue);
 
                     if (this.loading) {
@@ -1154,7 +1180,7 @@ Ext.define("committed-vs-delivered", {
             allowDecimals: false,
             listeners: {
                 scope: this,
-                change: function (field, newValue, oldValue) {
+                change: function () {
                     if (this.loading) {
                         return;
                     }
@@ -1175,12 +1201,41 @@ Ext.define("committed-vs-delivered", {
             allowDecimals: false,
             listeners: {
                 scope: this,
-                change: function (field, newValue, oldValue) {
+                change: function () {
                     if (this.loading) {
                         return;
                     }
 
                     this.showApplySettingsBtn();
+                }
+            }
+        }, {
+            itemId: 'aggregationTypeCombo',
+            xtype: 'combobox',
+            plugins: ['rallyfieldvalidationui'],
+            fieldLabel: 'Aggregation Type',
+            labelWidth: this.labelWidth,
+            displayField: 'name',
+            valueField: 'value',
+            value: this.getSetting('aggregationType'),
+            stateful: true,
+            stateId: context.getScopedStateId('committedvdelivered-aggregation-type-combo'),
+            stateEvents: ['change'],
+            editable: false,
+            allowBlank: false,
+            queryMode: 'local',
+            store: aggregationTypeStore,
+            listeners: {
+                scope: this,
+                expand: this.updateAggregationTypeCombo,
+                change: function (combo, newValue, oldValue) {
+                    if (this.loading) {
+                        return;
+                    }
+
+                    if (newValue != oldValue) {
+                        this.showApplySettingsBtn();
+                    }
                 }
             }
         }, {
@@ -1194,7 +1249,7 @@ Ext.define("committed-vs-delivered", {
             labelWidth: this.labelWidth,
             listeners: {
                 scope: this,
-                change: function (field, newValue, oldValue) {
+                change: function (combo, newValue, oldValue) {
                     if (this.loading) {
                         return;
                     }
@@ -1238,6 +1293,27 @@ Ext.define("committed-vs-delivered", {
         ]);
     },
 
+    updateAggregationTypeCombo: function () {
+        let aggregationTypeCombo = Rally.getApp().down('#aggregationTypeCombo');
+        let artifactTypeCombo = Rally.getApp().down('#artifactTypeCombo');
+
+        if (aggregationTypeCombo) {
+            Rally.data.ModelFactory.getModel({
+                type: artifactTypeCombo.getValue(),
+                success: function (model) {
+                    aggregationTypeCombo.store.filterBy(function (record) {
+                        return record.get('value') === 'count' ||
+                            model.hasField(record.get('value'));
+                    });
+                    if (!aggregationTypeCombo.store.findRecord('value', aggregationTypeCombo.getValue())) {
+                        aggregationTypeCombo.setValue('count');
+                    }
+                },
+                scope: this
+            });
+        }
+    },
+
     addProjectPicker: function () {
         this.down('#projectsTab').add(
             {
@@ -1248,7 +1324,7 @@ Ext.define("committed-vs-delivered", {
                 xtype: 'customagilepillpicker',
                 itemId: 'projectPicker',
                 hidden: false,
-                statefulKey: `${this.getAppId()}-${this.appName}-${this.getContext().getProject()._refObjectUUID}-project`,
+                statefulKey: this.getContext().getScopedStateId('committedvdelivered-project-picker'),
                 defaultToRecentTimeboxes: false,
                 listeners: {
                     recordremoved: this.showApplyProjectsBtn,
@@ -1338,7 +1414,7 @@ Ext.define("committed-vs-delivered", {
             if (this.artifactType !== artifactType) {
                 this.artifactType = artifactType;
                 this.ancestorAndMultiFilters = await this.ancestorFilterPlugin.getAllFiltersForType(this.artifactType, true).catch((e) => {
-                    Rally.ui.notify.Notifier.showError({ message: (e.message || e) });
+                    this.showError(e);
                 });
 
                 if (!this.ancestorAndMultiFilters) {
@@ -1422,17 +1498,17 @@ Ext.define("committed-vs-delivered", {
                 { name: Constants.TIMEBOX_TYPE_RELEASE_LABEL, value: Constants.TIMEBOX_TYPE_RELEASE },
             ]
         });
-        var typeStoreData = [
-            { name: 'User Story', value: 'HierarchicalRequirement' },
-            { name: 'Feature', value: 'PortfolioItem/Feature' },
-        ];
 
         var artifactTypeStore = Ext.create('Ext.data.Store', {
             fields: ['name', 'value'],
-            data: typeStoreData
+            data: [
+                { name: 'User Story', value: 'HierarchicalRequirement' },
+                { name: 'Feature', value: 'PortfolioItem/Feature' },
+            ]
         });
+
         return [{
-            xtype: 'combobox',
+            xtype: 'rallycombobox',
             name: 'artifactType',
             value: this.getSetting('artifactType'),
             fieldLabel: 'Artifact type',
@@ -1441,9 +1517,14 @@ Ext.define("committed-vs-delivered", {
             queryMode: 'local',
             displayField: 'name',
             valueField: 'value',
+            readyEvent: 'ready',
+            bubbleEvents: ['typeselected'],
             listeners: {
                 scope: this,
-                change: function (field, newValue, oldValue) {
+                ready: function (combo) {
+                    setTimeout(function () { combo.fireEvent('typeselected', combo.getValue()); }, 400);
+                },
+                change: function (combo, newValue, oldValue) {
                     if (newValue != oldValue) {
                         this.updateSettingsValues({
                             settings: {
@@ -1461,12 +1542,13 @@ Ext.define("committed-vs-delivered", {
                         else {
                             timeboxTypeControl.enable();
                         }
+                        combo.fireEvent('typeselected', combo.getValue());
                     }
                 }
             }
         },
         {
-            xtype: 'combobox',
+            xtype: 'rallycombobox',
             name: 'timeboxType',
             id: 'timeboxType',
             value: this.getSetting('timeboxType'),
@@ -1533,6 +1615,64 @@ Ext.define("committed-vs-delivered", {
                 }
             }
         }, {
+            name: 'aggregationType',
+            xtype: 'rallycombobox',
+            plugins: ['rallyfieldvalidationui'],
+            fieldLabel: 'Aggregation Type',
+            labelWidth: this.labelWidth,
+            displayField: 'name',
+            valueField: 'value',
+            value: this.getSetting('aggregationType'),
+            editable: false,
+            allowBlank: false,
+            store: {
+                fields: ['name', 'value'],
+                data: [
+                    { name: 'Count', value: 'count' },
+                    { name: 'Accepted Leaf Story Count', value: 'AcceptedLeafStoryCount' },
+                    { name: 'Accepted Leaf Story Plan Estimate Total', value: 'AcceptedLeafStoryPlanEstimateTotal' },
+                    { name: 'Actuals Total', value: 'Actuals' },
+                    { name: 'Estimate Total', value: 'Estimate' },
+                    { name: 'Leaf Story Count', value: 'LeafStoryCount' },
+                    { name: 'Leaf Story Plan Estimate Total', value: 'LeafStoryPlanEstimateTotal' },
+                    { name: 'Plan Estimate Total', value: 'PlanEstimate' },
+                    { name: 'Preliminary Estimate Total', value: 'PreliminaryEstimateValue' },
+                    { name: 'Refined Estimate Total', value: 'RefinedEstimate' }
+                ]
+            },
+            lastQuery: '',
+            listeners: {
+                scope: this,
+                change: function (field, newValue, oldValue) {
+                    if (newValue != oldValue) {
+                        this.updateSettingsValues({
+                            settings: {
+                                aggregationType: newValue
+                            }
+                        });
+                    }
+                }
+            },
+            handlesEvents: {
+                typeselected: function (types) {
+                    var type = Ext.Array.from(types)[0];
+                    Rally.data.ModelFactory.getModel({
+                        type: type,
+                        success: function (model) {
+                            this.store.filterBy(function (record) {
+                                return record.get('value') === 'count' ||
+                                    model.hasField(record.get('value'));
+                            });
+                            if (!this.store.findRecord('value', this.getValue())) {
+                                this.setValue('count');
+                            }
+                        },
+                        scope: this
+                    });
+
+                }
+            },
+        }, {
             xtype: 'rallycheckboxfield',
             name: 'currentTimebox',
             value: this.getSetting('currentTimebox'),
@@ -1576,11 +1716,13 @@ Ext.define("committed-vs-delivered", {
         return !!this.projectPicker.getValue().length;
     },
 
-    showError(msg) {
-        Rally.ui.notify.Notifier.showError({ message: this.parseError(msg) });
+    showError(msg, defaultMsg) {
+        Rally.ui.notify.Notifier.showError({ message: this.parseError(msg, defaultMsg) });
     },
 
     parseError(e, defaultMessage) {
+        defaultMessage = defaultMessage || 'An error occurred while loading the report';
+
         if (typeof e === 'string' && e.length) {
             return e;
         }

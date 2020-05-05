@@ -1,6 +1,6 @@
 {
   "name": "committed-vs-delivered",
-  "version": "1.3.0",
+  "version": "1.3.2",
   "scripts": {
     "debug": "grunt debug",
     "debug:watch": "nodemon --exec grunt debug",
@@ -15,6 +15,7 @@
     "@agile-central-technical-services/utils-shared-views": "^1.0.2",
     "@customagile/ancestor-pi-multi-level-pi-app-filter": "git+https://github.com/CustomAgile/utils-ancestor-pi-app-filter.git",
     "@customagile/utils-field-renderer": "git+https://github.com/CustomAgile/utils-field-renderer.git",
+    "field-renderer": "git+https://github.com/CustomAgile/utils-field-renderer.git",
     "papaparse": "^5.1.1"
   },
   "devDependencies": {
