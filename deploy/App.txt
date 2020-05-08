@@ -1,14 +1,14 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>committed-vs-delivered-1.3.3</title>
+    <title>committed-vs-delivered-1.3.4</title>
     <!--  (c) 2020 Custom Agile.  All Rights Reserved. -->
-    <!--  Build Date: Tue May 05 2020 20:57:17 GMT-0400 (Eastern Daylight Time) -->
+    <!--  Build Date: Fri May 08 2020 17:04:54 GMT-0400 (Eastern Daylight Time) -->
     <!--  Repository: https://github.com/CustomAgile/committed-vs-delivered -->
     
     <script type="text/javascript">
-        var APP_BUILD_DATE = "Tue May 05 2020 20:57:17 GMT-0400 (Eastern Daylight Time)";
-        var CHECKSUM = 2784279624801;
+        var APP_BUILD_DATE = "Fri May 08 2020 17:04:54 GMT-0400 (Eastern Daylight Time)";
+        var CHECKSUM = 2800471016588;
     </script>
 
     <script type="text/javascript" src="/apps/2.1/sdk.js"></script>
@@ -196,7 +196,7 @@ multiFilterHelpHtml = `
         `;
 Ext.define('Utils.AncestorPiAppFilter', {
     alias: 'plugin.UtilsAncestorPiAppFilter',
-    version: "1.2.10",
+    version: "1.2.12",
     mixins: [
         'Ext.AbstractPlugin',
         'Rally.Messageable'
@@ -349,6 +349,12 @@ Ext.define('Utils.AncestorPiAppFilter', {
          * Pass a typePath to set that PI type as the default visible tab
          */
         visibleTab: undefined,
+
+        /**
+         * @cfg {Boolean}
+         * Set to true to prevent user from scoping app across the workspace
+         * */
+        disableGlobalScope: false
     },
     filterControls: [],
     portfolioItemTypes: [],
@@ -805,7 +811,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
     },
 
     getIgnoreProjectScope: function () {
-        return this._getValue().ignoreProjectScope;
+        return !this.disableGlobalScope && this._getValue().ignoreProjectScope;
     },
 
     getCurrentView: function () {
@@ -865,6 +871,7 @@ Ext.define('Utils.AncestorPiAppFilter', {
     setMultiLevelFilterStates: function (states) {
         if (!this._isSubscriber()) {
             if (states) {
+                this.suspendEvents(false);
                 if (this.tabPanel) {
                     this.tabPanel.removeAll();
                 }
@@ -874,12 +881,18 @@ Ext.define('Utils.AncestorPiAppFilter', {
                             let typeName = (this.filterControls[i].inlineFilterButton.modelNames) || 'unknown';
                             if (typeName === key) {
                                 let filterBtn = this.filterControls[i].inlineFilterButton;
+                                // filterBtn.suspendEvents(false);
                                 filterBtn.applyState(states[key]);
+                                // filterBtn.resumeEvents();
                             }
                         }
                     }
                 }
-                setTimeout(function () { this.tabPanel && this.tabPanel.setActiveTab(this.defaultTab); }.bind(this), 1500);
+                setTimeout(function () {
+                    this.resumeEvents();
+                    this.tabPanel && this.tabPanel.setActiveTab(this.defaultTab);
+                    this._onChange();
+                }.bind(this), 1500);
             }
             else {
                 this._clearAllFilters();
@@ -1182,17 +1195,19 @@ Ext.define('Utils.AncestorPiAppFilter', {
                 boxLabel: "User's current project(s).",
                 name: 'Utils.AncestorPiAppFilter.projectScope',
                 inputValue: 'current',
-                checked: 'current' === currentSettings['Utils.AncestorPiAppFilter.projectScope']
+                checked: 'current' === currentSettings['Utils.AncestorPiAppFilter.projectScope'] || this.disableGlobalScope
             }, {
                 boxLabel: "All projects in workspace.",
                 name: 'Utils.AncestorPiAppFilter.projectScope',
                 inputValue: 'workspace',
-                checked: 'workspace' === currentSettings['Utils.AncestorPiAppFilter.projectScope']
+                checked: 'workspace' === currentSettings['Utils.AncestorPiAppFilter.projectScope'] && !this.disableGlobalScope,
+                disabled: this.disableGlobalScope
             }, {
                 boxLabel: 'User selectable (either current project(s) or all projects in workspace).',
                 name: 'Utils.AncestorPiAppFilter.projectScope',
                 inputValue: 'user',
-                checked: 'user' === currentSettings['Utils.AncestorPiAppFilter.projectScope']
+                checked: 'user' === currentSettings['Utils.AncestorPiAppFilter.projectScope'] && !this.disableGlobalScope,
+                disabled: this.disableGlobalScope
             },],
             listeners: {
                 scope: this,
@@ -3901,6 +3916,7 @@ Ext.define("committed-vs-delivered", {
             filtersHidden: false,
             projectScope: 'current',
             displayMultiLevelFilter: true,
+            disableGlobalScope: true,
             visibleTab: this.down('#artifactTypeCombo').getValue(),
             listeners: {
                 scope: this,
@@ -3922,6 +3938,14 @@ Ext.define("committed-vs-delivered", {
                             });
 
                             this.updateFilterTabText(plugin.getMultiLevelFilters());
+
+                            if (this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'user' || this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'workspace') {
+                                Rally.ui.notify.Notifier.showWarning({ message: 'Scoping globally across the workspace has been disabled for this app. Please use the project tab to customize report scope.' });
+
+                                if (this.down('#ignoreScopeControl')) {
+                                    this.down('#ignoreScopeControl').hide()
+                                }
+                            }
 
                             this.loading = false;
                             this.applyFilters();
@@ -4043,14 +4067,11 @@ Ext.define("committed-vs-delivered", {
     },
 
     convertDataArrayToCSVText: function (data_array, requestedFieldHash) {
-        var text = '';
         var csv = [];
         let header = [];
         Ext.each(Object.keys(requestedFieldHash), function (key) {
-            text += requestedFieldHash[key] + ',';
             header.push(requestedFieldHash[key]);
         });
-        text = text.replace(/,$/, '\n');
         csv.push(header);
 
         Ext.each(data_array, function (d) {
@@ -4059,10 +4080,8 @@ Ext.define("committed-vs-delivered", {
                 row.push(CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ', true));
             }, this);
             csv.push(row);
-            text = text.replace(/,$/, '\n');
         }, this);
         return Papa.unparse(csv);
-        return text;
     },
 
     getFieldsFromButton: function () {

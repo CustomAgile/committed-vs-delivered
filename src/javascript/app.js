@@ -141,6 +141,7 @@ Ext.define("committed-vs-delivered", {
             filtersHidden: false,
             projectScope: 'current',
             displayMultiLevelFilter: true,
+            disableGlobalScope: true,
             visibleTab: this.down('#artifactTypeCombo').getValue(),
             listeners: {
                 scope: this,
@@ -162,6 +163,14 @@ Ext.define("committed-vs-delivered", {
                             });
 
                             this.updateFilterTabText(plugin.getMultiLevelFilters());
+
+                            if (this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'user' || this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'workspace') {
+                                Rally.ui.notify.Notifier.showWarning({ message: 'Scoping globally across the workspace has been disabled for this app. Please use the project tab to customize report scope.' });
+
+                                if (this.down('#ignoreScopeControl')) {
+                                    this.down('#ignoreScopeControl').hide()
+                                }
+                            }
 
                             this.loading = false;
                             this.applyFilters();
@@ -283,14 +292,11 @@ Ext.define("committed-vs-delivered", {
     },
 
     convertDataArrayToCSVText: function (data_array, requestedFieldHash) {
-        var text = '';
         var csv = [];
         let header = [];
         Ext.each(Object.keys(requestedFieldHash), function (key) {
-            text += requestedFieldHash[key] + ',';
             header.push(requestedFieldHash[key]);
         });
-        text = text.replace(/,$/, '\n');
         csv.push(header);
 
         Ext.each(data_array, function (d) {
@@ -299,10 +305,8 @@ Ext.define("committed-vs-delivered", {
                 row.push(CustomAgile.ui.renderer.RecordFieldRendererFactory.getFieldDisplayValue(d, key, '; ', true));
             }, this);
             csv.push(row);
-            text = text.replace(/,$/, '\n');
         }, this);
         return Papa.unparse(csv);
-        return text;
     },
 
     getFieldsFromButton: function () {

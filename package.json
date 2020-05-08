@@ -1,6 +1,6 @@
 {
   "name": "committed-vs-delivered",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "scripts": {
     "debug": "grunt debug",
     "debug:watch": "nodemon --exec grunt debug",
