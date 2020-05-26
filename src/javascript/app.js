@@ -986,7 +986,7 @@ Ext.define("committed-vs-delivered", {
     async _getAllChildProjects(allRoots = [], fetch = ['Name', 'Children', 'ObjectID']) {
         if (!allRoots.length) { return []; }
 
-        const promises = allRoots.map(r => this._wrap(r.getCollection('Children', { fetch, limit: Infinity }).load()));
+        const promises = allRoots.map(r => this._wrap(r.getCollection('Children', { fetch, limit: Infinity, filters: [{ property: 'State', value: 'Open' }] }).load()));
         const children = _.flatten(await Promise.all(promises));
         const decendents = await this._getAllChildProjects(children, fetch);
         const removeDupes = {};
