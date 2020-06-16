@@ -98,10 +98,9 @@ Ext.define("committed-vs-delivered", {
         Rally.data.wsapi.Proxy.superclass.timeout = 180000;
         Rally.data.wsapi.batch.Proxy.superclass.timeout = 180000;
         this.labelWidth = 240;
-
+        this.loading = true;
         this.down('#grid-area').on('resize', this.resizeChart, this);
 
-        this.loading = true;
 
         this.collapseBtn = Ext.widget('rallybutton', {
             text: this.down('#filterAndSettingsPanel').getCollapsed() ? 'Expand Filters and Settings' : 'Collapse',
@@ -111,15 +110,27 @@ Ext.define("committed-vs-delivered", {
             handler: (btn) => {
                 this.down('#filterAndSettingsPanel').toggleCollapse();
                 if (btn.getText() === 'Collapse') {
+                    this.ancestorFilterPlugin.hideHelpButton();
                     btn.setText('Expand Filters and Settings');
                 }
                 else {
                     btn.setText('Collapse');
+                    this.ancestorFilterPlugin.showHelpButton();
                 }
             }
         });
 
         this.collapseBtn.showBy(this.down('#filterAndSettingsPanel'), 'tl-tl', [0, 3]);
+
+        this.on('beforeshow', () => {
+            if (this.down('#filterAndSettingsPanel').getActiveTab().title.indexOf('FILTERS') === -1) {
+                setTimeout(() => this.ancestorFilterPlugin.hideHelpButton(), 1000);
+            }
+        });
+
+        // If panel is collapsed, the multifilter help button isn't rendered in its proper place
+        this.shouldCollapseSettings = this.down('#filterAndSettingsPanel').getCollapsed();
+        this.down('#filterAndSettingsPanel').expand(false);
 
         this.addSettingItems();
         this.addProjectPicker();
@@ -137,7 +148,6 @@ Ext.define("committed-vs-delivered", {
             ptype: 'UtilsAncestorPiAppFilter',
             pluginId: 'ancestorFilterPlugin',
             settingsConfig: { labelWidth: this.labelWidth },
-            whiteListFields: ['Tags', 'Milestones', 'c_EnterpriseApprovalEA', 'c_EAEpic', 'DisplayColor'],
             filtersHidden: false,
             projectScope: 'current',
             displayMultiLevelFilter: true,
@@ -164,6 +174,21 @@ Ext.define("committed-vs-delivered", {
 
                             this.updateFilterTabText(plugin.getMultiLevelFilters());
 
+                            this.down('#filterAndSettingsPanel').on('beforetabchange', (tabs, newTab) => {
+                                if (newTab.title.indexOf('FILTERS') > -1) {
+                                    this.ancestorFilterPlugin.showHelpButton();
+                                }
+                                else {
+                                    this.ancestorFilterPlugin.hideHelpButton();
+                                }
+                            });
+
+                            // If panel is collapsed, the multifilter help button isn't rendered in its proper place
+                            if (this.shouldCollapseSettings) {
+                                this.down('#filterAndSettingsPanel').collapse();
+                                this.ancestorFilterPlugin.hideHelpButton();
+                            }
+
                             if (this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'user' || this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'workspace') {
                                 Rally.ui.notify.Notifier.showWarning({ message: 'Scoping globally across the workspace has been disabled for this app. Please use the project tab to customize report scope.' });
 
@@ -173,6 +198,13 @@ Ext.define("committed-vs-delivered", {
                             }
 
                             this.loading = false;
+
+                            setTimeout(() => {
+                                if (this.ancestorFilterPlugin._isSubscriber() && this.down('#applyFiltersBtn')) {
+                                    this.down('#applyFiltersBtn').hide();
+                                }
+                            }, 500);
+
                             this.applyFilters();
                         },
                         failure(msg) {
@@ -191,8 +223,14 @@ Ext.define("committed-vs-delivered", {
     },
 
     filtersChange: function (filters) {
-        this.down('#applyFiltersBtn').enable();
         this.updateFilterTabText(filters);
+
+        if (this.ancestorFilterPlugin._isSubscriber()) {
+            this.applyFilters();
+        }
+        else {
+            this.down('#applyFiltersBtn').enable();
+        }
     },
 
     applyFilters: async function () {
@@ -1406,7 +1444,7 @@ Ext.define("committed-vs-delivered", {
         gridArea.removeAll();
         this.setLoading(true);
         this.addControls();
-        this.down('#applyFiltersBtn').disable();
+        if (this.down('#applyFiltersBtn')) { this.down('#applyFiltersBtn').disable(); }
         this.down('#applySettingsBtn').hide();
         this.down('#applyProjectsBtn').hide();
         this.updateProjectTabText();

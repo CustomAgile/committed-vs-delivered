@@ -4,7 +4,7 @@
     "sdk": "2.1",
     "repository": "https://github.com/CustomAgile/committed-vs-delivered",
     "javascript": [
-        "node_modules/@agile-central-technical-services/utils-shared-views/index.js",
+        "node_modules/@customagile/utils-shared-views/index.js",
         "node_modules/@customagile/ancestor-pi-multi-level-pi-app-filter/index.js",
         "node_modules/@customagile/utils-field-renderer/field-renderer.js",
         "node_modules/@agile-central-technical-services/utils-ancestor-pi-inline-filter/index.js",
