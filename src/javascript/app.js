@@ -152,7 +152,7 @@ Ext.define("committed-vs-delivered", {
                 ready(plugin) {
                     Rally.data.util.PortfolioItemHelper.getPortfolioItemTypes().then({
                         scope: this,
-                        success(portfolioItemTypes) {
+                        async success(portfolioItemTypes) {
                             this.portfolioItemTypes = _.sortBy(portfolioItemTypes, function (type) {
                                 return type.get('Ordinal');
                             });
@@ -185,19 +185,16 @@ Ext.define("committed-vs-delivered", {
 
                             this.loading = false;
 
+                            if (localStorage.getItem(this.getContext().getScopedStateId('committedvdelivered-project-picker'))) {
+                                this.ancestorFilterPlugin._setScopeControlToSpecific();
+                                let checkBoxValue = Ext.state.Manager.get(this.getContext().getScopedStateId('committedvdelivered-scope-down-checkbox'));
+                                await this.ancestorFilterPlugin._updatePickerFromOldPicker('committedvdelivered', checkBoxValue['checked']);
+                            }
+
                             setTimeout(async () => {
                                 if (this.ancestorFilterPlugin._isSubscriber() && this.down('#applyFiltersBtn')) {
                                     this.down('#applyFiltersBtn').hide();
                                 }
-
-                                if (this.ancestorFilterPlugin) {
-                                    if (localStorage.getItem(this.getContext().getScopedStateId('committedvdelivered-project-picker'))) {
-                                        this.ancestorFilterPlugin._setScopeControlToSpecific();
-                                        let checkBoxValue = Ext.state.Manager.get(this.getContext().getScopedStateId('committedvdelivered-scope-down-checkbox'));
-                                        await this.ancestorFilterPlugin._updatePickerFromOldPicker('committedvdelivered', checkBoxValue['checked']);
-                                    }
-                                }
-
                             }, 500);
 
                             this.applyFilters();
