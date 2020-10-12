@@ -54,11 +54,6 @@ Ext.define("committed-vs-delivered", {
                     html: '',
                     itemId: 'settingsTab',
                     padding: 10,
-                },
-                {
-                    title: 'Projects',
-                    itemId: 'projectsTab',
-                    padding: 10,
                 }
             ]
         },
@@ -133,7 +128,6 @@ Ext.define("committed-vs-delivered", {
         this.down('#filterAndSettingsPanel').expand(false);
 
         this.addSettingItems();
-        this.addProjectPicker();
 
         this.down('#' + Utils.AncestorPiAppFilter.RENDER_AREA_ID).add({
             xtype: 'rallybutton',
@@ -149,7 +143,7 @@ Ext.define("committed-vs-delivered", {
             pluginId: 'ancestorFilterPlugin',
             settingsConfig: { labelWidth: this.labelWidth },
             filtersHidden: false,
-            projectScope: 'current',
+            projectScope: 'user',
             displayMultiLevelFilter: true,
             disableGlobalScope: true,
             visibleTab: this.down('#artifactTypeCombo').getValue(),
@@ -189,20 +183,21 @@ Ext.define("committed-vs-delivered", {
                                 this.ancestorFilterPlugin.hideHelpButton();
                             }
 
-                            if (this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'user' || this.getSetting('Utils.AncestorPiAppFilter.projectScope') === 'workspace') {
-                                Rally.ui.notify.Notifier.showWarning({ message: 'Scoping globally across the workspace has been disabled for this app. Please use the project tab to customize report scope.' });
-
-                                if (this.down('#ignoreScopeControl')) {
-                                    this.down('#ignoreScopeControl').hide()
-                                }
-                            }
-
                             this.loading = false;
 
-                            setTimeout(() => {
+                            setTimeout(async () => {
                                 if (this.ancestorFilterPlugin._isSubscriber() && this.down('#applyFiltersBtn')) {
                                     this.down('#applyFiltersBtn').hide();
                                 }
+
+                                if (this.ancestorFilterPlugin) {
+                                    if (localStorage.getItem(this.getContext().getScopedStateId('committedvdelivered-project-picker'))) {
+                                        this.ancestorFilterPlugin._setScopeControlToSpecific();
+                                        let checkBoxValue = Ext.state.Manager.get(this.getContext().getScopedStateId('committedvdelivered-scope-down-checkbox'));
+                                        await this.ancestorFilterPlugin._updatePickerFromOldPicker('committedvdelivered', checkBoxValue['checked']);
+                                    }
+                                }
+
                             }, 500);
 
                             this.applyFilters();
@@ -222,8 +217,8 @@ Ext.define("committed-vs-delivered", {
         this.viewChange();
     },
 
-    filtersChange: function (filters) {
-        this.updateFilterTabText(filters);
+    filtersChange: function () {
+        this.updateFilterTabText();
 
         if (this.ancestorFilterPlugin._isSubscriber()) {
             this.applyFilters();
@@ -499,10 +494,10 @@ Ext.define("committed-vs-delivered", {
                                     fetch.push(aggregationType);
                                 }
 
-                                if (this.searchAllProjects()) {
-                                    dataContext.project = null;
-                                }
-                                if (this.useSpecificProjects()) {
+                                // if (this.searchAllProjects()) {
+                                //     dataContext.project = null;
+                                // }
+                                if (this.ancestorFilterPlugin.useSpecificProjects()) {
                                     dataContext.project = null;
                                     dataContext.projectScopeUp = false;
                                     dataContext.projectScopeDown = false;
@@ -776,9 +771,11 @@ Ext.define("committed-vs-delivered", {
         dataContext.projectScopeDown = false;
         dataContext.projectScopeUp = false;
         let picker = this.down('#projectPicker');
-        let projects = picker.getValue();
-        if (projects.length) {
+        let projects = picker ? picker.getValue() : this.projectRefs;
+        if (projects.length && picker) {
             dataContext.project = projects[0].get('_ref');
+        } else {
+            dataContext.project = this.projectRefs[0];
         }
 
         return Ext.create('Rally.data.wsapi.Store', {
@@ -813,7 +810,7 @@ Ext.define("committed-vs-delivered", {
                 if (timeboxFilter.length) {
                     timeboxFilter = Rally.data.wsapi.Filter.or(timeboxFilter);
 
-                    if (this.useSpecificProjects()) {
+                    if (this.ancestorFilterPlugin.useSpecificProjects()) {
                         timeboxFilter = timeboxFilter.and(new Rally.data.wsapi.Filter({
                             property: 'Project',
                             operator: 'in',
@@ -831,7 +828,7 @@ Ext.define("committed-vs-delivered", {
             success: function (timeboxFilter) {
                 if (timeboxFilter) {
                     let context = this.getContext().getDataContext();
-                    if (this.useSpecificProjects()) {
+                    if (this.ancestorFilterPlugin.useSpecificProjects()) {
                         context.project = null;
                     }
 
@@ -892,19 +889,12 @@ Ext.define("committed-vs-delivered", {
             dateFilter
         ];
 
-        if (this.searchAllProjects()) {
+
+        if (this.ancestorFilterPlugin.useSpecificProjects()) {
             dataContext.project = null;
         }
-        else {
-            if (this.useSpecificProjects()) {
-                dataContext.project = null;
-            }
-            filters.push({
-                property: 'Project',
-                operator: 'in',
-                value: this.projects
-            });
-        }
+
+        //}
 
         let promises = [];
 
@@ -1004,23 +994,6 @@ Ext.define("committed-vs-delivered", {
             this.projectRefs = [];
         }
     },
-
-    async _getSpecificProjectList() {
-        let projects = this.projectPicker.getValue();
-
-        if (this.down('#includeChildProjectsCheckbox').getValue()) {
-            projects = await this._getAllChildProjects(projects);
-        }
-
-        this.projects = _.map(projects, (p) => {
-            return p.get('ObjectID');
-        });
-
-        this.projectRefs = _.map(projects, (p) => {
-            return p.get('_ref');
-        });
-    },
-
     async _getAllChildProjects(allRoots = [], fetch = ['Name', 'Children', 'ObjectID']) {
         if (!allRoots.length) { return []; }
 
@@ -1035,7 +1008,6 @@ Ext.define("committed-vs-delivered", {
         finalResponse = Object.values(removeDupes);
         return finalResponse;
     },
-
     async _getAllParentProjects(p) {
         let projectStore = Ext.create('Rally.data.wsapi.Store', {
             model: 'Project',
@@ -1056,7 +1028,6 @@ Ext.define("committed-vs-delivered", {
         }
         return [p];
     },
-
     async _wrap(deferred) {
         if (!deferred || !_.isFunction(deferred.then)) {
             return Promise.reject(new Error('Wrap cannot process this type of data into a ECMA promise'));
@@ -1072,7 +1043,6 @@ Ext.define("committed-vs-delivered", {
             });
         });
     },
-
     _addGridboard: function (chartConfig) {
         var gridArea = this.down('#grid-area');
         gridArea.removeAll();
@@ -1356,58 +1326,7 @@ Ext.define("committed-vs-delivered", {
         }
     },
 
-    addProjectPicker: function () {
-        this.down('#projectsTab').add(
-            {
-                xtype: 'component',
-                html: `If you require a report spanning across multiple project hierarchies, use this project picker to specify where the data will be pulled from. If blank, app will respect user's current project scoping.`
-            },
-            {
-                xtype: 'customagilepillpicker',
-                itemId: 'projectPicker',
-                hidden: false,
-                statefulKey: this.getContext().getScopedStateId('committedvdelivered-project-picker'),
-                defaultToRecentTimeboxes: false,
-                listeners: {
-                    recordremoved: this.showApplyProjectsBtn,
-                    scope: this
-                },
-                pickerCfg: {
-                    xtype: 'customagilemultiselectproject',
-                    width: 350,
-                    margin: '10 0 0 0',
-                    listeners: {
-                        blur: this.showApplyProjectsBtn,
-                        scope: this
-                    }
-                }
-            },
-            {
-                xtype: 'rallycheckboxfield',
-                itemId: 'includeChildProjectsCheckbox',
-                fieldLabel: 'Show work from child projects',
-                stateful: true,
-                stateId: this.getContext().getScopedStateId('committedvdelivered-scope-down-checkbox'),
-                stateEvents: ['change'],
-                labelWidth: 200,
-                listeners: {
-                    scope: this,
-                    change: this.showApplyProjectsBtn
-                }
-            },
-            {
-                xtype: 'rallybutton',
-                itemId: 'applyProjectsBtn',
-                text: 'Apply',
-                margin: '10 0 0 0',
-                hidden: true,
-                handler: function (btn) {
-                    btn.hide();
-                    this.projectListChange();
-                }.bind(this)
-            }
-        );
-    },
+
 
     showApplySettingsBtn: function () {
         this.down('#applySettingsBtn').show();
@@ -1418,6 +1337,9 @@ Ext.define("committed-vs-delivered", {
     },
 
     updateFilterTabText: function (filters) {
+        if (!filters) {
+            filters = this.ancestorFilterPlugin.getMultiLevelFilters();
+        }
         var totalFilters = 0;
         _.each(filters, function (filter) {
             totalFilters += filter.length;
@@ -1429,16 +1351,6 @@ Ext.define("committed-vs-delivered", {
         if (tab) { tab.setTitle(titleText); }
     },
 
-    updateProjectTabText: function () {
-        let picker = this.down('#projectPicker');
-        totalProjects = picker.getValue().length;
-
-        var titleText = totalProjects ? `PROJECTS (${totalProjects})` : 'PROJECTS';
-        var tab = this.down('#filterAndSettingsPanel').child('#projectsTab');
-
-        if (tab) { tab.setTitle(titleText); }
-    },
-
     viewChange: async function () {
         var gridArea = this.down('#grid-area');
         gridArea.removeAll();
@@ -1446,10 +1358,21 @@ Ext.define("committed-vs-delivered", {
         this.addControls();
         if (this.down('#applyFiltersBtn')) { this.down('#applyFiltersBtn').disable(); }
         this.down('#applySettingsBtn').hide();
-        this.down('#applyProjectsBtn').hide();
-        this.updateProjectTabText();
+        if (this.down('#applyProjectsBtn')) { this.down('#applyProjectsBtn').hide(); }
         let status = this.cancelPreviousLoad();
-        this.projectPicker = this.down('#projectPicker');
+        if (this.ancestorFilterPlugin.projectPicker) {
+            this.ancestorFilterPlugin.projectPicker.updateProjectTabText();
+            this.projects = await this.ancestorFilterPlugin.getProjectIDs();
+            this.projectRefs = await this.ancestorFilterPlugin.getProjectRefs()
+        } else {
+            if (this.getContext().getProjectScopeDown() || this.getContext().getProjectScopeUp()) {
+                await this._getScopedProjectList();
+            }
+            else {
+                this.projects = [this.getContext().getProject().ObjectID];
+                this.projectRefs = [this.getContext().getProject()._ref];
+            }
+        }
         let artifactType = this.down('#artifactTypeCombo').getValue();
 
         if (this.artifactType) {
@@ -1468,14 +1391,14 @@ Ext.define("committed-vs-delivered", {
             this.artifactType = this.down('#artifactTypeCombo').getValue();
         }
 
-        if (!this.projects && !this.searchAllProjects()) {
-            await this.loadProjects();
+        if (!this.projects && this.ancestorFilterPlugin.projectPicker) {
+            //await this.loadProjects();
 
-            if (!this.projects || !this.projects.length) {
-                this.showError('Failed to fetch list of project IDs');
-                this.setLoading(false);
-                return;
-            }
+            //if (!this.projects || !this.projects.length) {
+            this.showError('Failed to fetch list of project IDs');
+            this.setLoading(false);
+            return;
+            //}
         }
 
         this._buildChartConfig(status).then({
@@ -1490,28 +1413,6 @@ Ext.define("committed-vs-delivered", {
                 this.resizeChart();
             }
         });
-    },
-
-    async loadProjects() {
-        this.setLoading('Loading Project List...');
-
-        if (this.useSpecificProjects()) {
-            await this._getSpecificProjectList();
-        }
-        else {
-            if (this.getContext().getProjectScopeDown() || this.getContext().getProjectScopeUp()) {
-                await this._getScopedProjectList();
-            }
-            else {
-                this.projects = [this.getContext().getProject().ObjectID];
-                this.projectRefs = [this.getContext().getProject()._ref];
-            }
-        }
-    },
-
-    async projectListChange() {
-        await this.loadProjects();
-        this.viewChange();
     },
 
     cancelPreviousLoad: function () {
@@ -1752,10 +1653,6 @@ Ext.define("committed-vs-delivered", {
             }
         }
         ]
-    },
-
-    useSpecificProjects() {
-        return !!this.projectPicker.getValue().length;
     },
 
     showError(msg, defaultMsg) {
