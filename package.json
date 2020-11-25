@@ -1,6 +1,6 @@
 {
   "name": "committed-vs-delivered",
-  "version": "1.3.6",
+  "version": "1.3.7",
   "repository": "https://github.com/CustomAgile/committed-vs-delivered",
   "scripts": {
     "debug": "grunt debug",

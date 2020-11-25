@@ -431,69 +431,65 @@ Ext.define("committed-vs-delivered", {
                     var timeboxEndIso = timebox.get(this.timeboxEndDateField).toISOString();
                     var timeboxStartIso = timebox.get(this.timeboxStartDateField).toISOString();
                     var snapshotByOid = {}
+
                     return this.getSnapshotsFromTimeboxGroup(timeboxGroup).then({
                         scope: this,
                         success: function (snapshots) {
-                            if (status.cancelLoad) {
-                                return;
-                            }
+                            if (status.cancelLoad) { return; }
 
                             if (!snapshots || snapshots.length === 0) {
-                                return {
-                                    timebox: timebox,
-                                    artifacts: []
-                                }
+                                return { timebox: timebox, artifacts: [] }
                             }
                             else {
-                                snapshots = _.flatten(snapshots);
+                                snapshots = _.filter(_.flatten(snapshots), snap => this.isValidSnapshot(snap));
 
                                 if (snapshots.length === 0) {
-                                    return {
-                                        timebox: timebox,
-                                        artifacts: []
+                                    return { timebox: timebox, artifacts: [] }
+                                }
+
+                                let oidQueries = [];
+                                let filters = [];
+                                let promises = [];
+                                let dataContext = this.getContext().getDataContext();
+                                let fetch = this.getFieldsFromButton();
+                                let timeboxScope = this.getContext().getTimeboxScope();
+                                let aggregationType = this.down('#aggregationTypeCombo').getValue();
+
+                                _.each(snapshots, function (snapshot) {
+                                    let oid = snapshot.get('ObjectID');
+                                    oidQueries.push(oid);
+                                    let previousValidFrom = snapshotByOid[oid] && snapshotByOid[oid].get('_ValidFrom');
+                                    if (!previousValidFrom || snapshot.get('_ValidFrom') < previousValidFrom) {
+                                        snapshotByOid[oid] = snapshot;
+                                    }
+                                }, this);
+
+                                oidQueries = _.uniq(oidQueries);
+
+                                if (this.ancestorAndMultiFilters && this.ancestorAndMultiFilters.length) {
+                                    filters = filters.concat(this.ancestorAndMultiFilters);
+                                }
+
+                                if (timeboxScope && this.down('#respectTimeboxFilteredPageCheckbox').getValue()) {
+                                    if (timeboxScope.type === 'iteration' && this.modelName === 'PortfolioItem/Feature') { }
+                                    else {
+                                        filters.push(timeboxScope.getQueryFilter());
                                     }
                                 }
 
-                                var oidQueries = [];
-                                _.each(snapshots, function (snapshot) {
-                                    let oid = snapshot.get('ObjectID');
-                                    oidQueries.push(snapshot.get('ObjectID'));
-                                    snapshotByOid[oid] = snapshot;
-                                }, this);
-
-                                // We can't get other data like accepted date
-                                // as part of the planned/unplanned lookback query because then we'd have
-                                // to compress potentially many snapshots on the client side.
-                                var filters = new Rally.data.wsapi.Filter({
+                                filters.push({
                                     property: 'ObjectID',
                                     operator: 'in',
                                     value: oidQueries
                                 });
 
-                                if (this.ancestorAndMultiFilters && this.ancestorAndMultiFilters.length) {
-                                    filters = filters.and(Rally.data.wsapi.Filter.and(this.ancestorAndMultiFilters));
-                                }
-
-                                var timeboxScope = this.getContext().getTimeboxScope();
-                                if (timeboxScope && this.down('#respectTimeboxFilteredPageCheckbox').getValue()) {
-                                    if (timeboxScope.type === 'iteration' && this.modelName === 'PortfolioItem/Feature') { }
-                                    else {
-                                        filters = filters.and(timeboxScope.getQueryFilter());
-                                    }
-                                }
-
-                                let dataContext = this.getContext().getDataContext();
-                                let promises = [];
-                                let fetch = this.getFieldsFromButton();
-                                let aggregationType = this.down('#aggregationTypeCombo').getValue();
-
                                 if (aggregationType !== 'count') {
                                     fetch.push(aggregationType);
                                 }
 
-                                // if (this.searchAllProjects()) {
-                                //     dataContext.project = null;
-                                // }
+                                // There are too many stories across the workspace, which results in timeouts when
+                                // loading the story data with dataContext.project = null.
+                                // So instead we scope to every project in the list which runs much faster
                                 if (this.ancestorFilterPlugin.useSpecificProjects()) {
                                     dataContext.project = null;
                                     dataContext.projectScopeUp = false;
@@ -510,7 +506,8 @@ Ext.define("committed-vs-delivered", {
                                             autoLoad: false,
                                             enablePostGet: true,
                                             filters: filters,
-                                            limit: Infinity
+                                            limit: Infinity,
+                                            pageSize: 200
                                         });
 
                                         promises.push(artifactStore.load());
@@ -524,7 +521,8 @@ Ext.define("committed-vs-delivered", {
                                         autoLoad: false,
                                         enablePostGet: true,
                                         filters: filters,
-                                        limit: Infinity
+                                        limit: Infinity,
+                                        pageSize: 200
                                     });
 
                                     promises.push(artifactStore.load());
@@ -600,6 +598,14 @@ Ext.define("committed-vs-delivered", {
         });
     },
 
+    // User may have copied an artifact in order to continue work in the next timebox
+    // If the snapshot is valid for only a brief period of time, exclude it from the churn data
+    isValidSnapshot(snap) {
+        let diff = new Date(snap.get('_ValidTo')) - new Date(snap.get('_ValidFrom'));
+
+        return typeof diff === 'number' && diff > 3600000;
+    },
+
     getChartConfig: function (data) {
         if (!data) {
             return;
@@ -633,27 +639,27 @@ Ext.define("committed-vs-delivered", {
             if (datum.artifacts) {
                 for (let artifact of datum.artifacts) {
                     let artifactVal = aggregationType === 'count' ? 1 : artifact.get(aggregationType) || 0;
-                    if (artifact.get('AcceptedBeforeTimeboxStart')) {
-                        // Special case. The artifact was accepted before the timebox started. The work occurred
-                        // *before* this timebox started and is NOT therefore included in the timebox as committed
-                        // or delivered.
-                        console.log('AcceptedBeforeTimeboxStart', artifact);
+                    // if (artifact.get('AcceptedBeforeTimeboxStart')) {
+                    //     // Special case. The artifact was accepted before the timebox started. The work occurred
+                    //     // *before* this timebox started and is NOT therefore included in the timebox as committed
+                    //     // or delivered.
+                    //     console.log('AcceptedBeforeTimeboxStart', artifact);
+                    // }
+                    // else {
+                    this.currentData.push(artifact.data);
+                    if (artifact.get('Planned')) {
+                        pc += artifactVal; // Committed and planned
+                        if (artifact.get('Delivered')) {
+                            pd += artifactVal; // Planned and delivered
+                        }
                     }
                     else {
-                        this.currentData.push(artifact.data);
-                        if (artifact.get('Planned')) {
-                            pc += artifactVal; // Committed and planned
-                            if (artifact.get('Delivered')) {
-                                pd += artifactVal; // Planned and delivered
-                            }
-                        }
-                        else {
-                            uc += artifactVal; // Comitted and unplanned 
-                            if (artifact.get('Delivered')) {
-                                ud += artifactVal // Unplanned and delivered
-                            }
+                        uc += artifactVal; // Comitted and unplanned 
+                        if (artifact.get('Delivered')) {
+                            ud += artifactVal // Unplanned and delivered
                         }
                     }
+                    // }
                 };
             }
             plannedCommitted.push(pc);
@@ -866,7 +872,13 @@ Ext.define("committed-vs-delivered", {
         });
         var timeboxEndIso = timebox.get(this.timeboxEndDateField).toISOString();
         var planningWindowEndIso = Ext.Date.add(timebox.get(this.timeboxStartDateField), Ext.Date.DAY, this.down('#planningWindowInput').getValue()).toISOString();
-        var dateFilter = Rally.data.lookback.QueryFilter.and([{
+        var dataContext = this.getContext().getDataContext();
+
+        var filters = [{
+            property: '_TypeHierarchy',
+            value: this.modelName
+        },
+        {
             property: '_ValidFrom',
             operator: '<=',
             value: timeboxEndIso
@@ -875,31 +887,62 @@ Ext.define("committed-vs-delivered", {
             property: '_ValidTo',
             operator: '>=',
             value: planningWindowEndIso
-        }
-        ]);
-        var dataContext = this.getContext().getDataContext();
+        }];
 
-        var filters = [{
-            property: '_TypeHierarchy',
-            value: this.modelName
-        },
-            dateFilter
-        ];
+        if (this.isPiTypeSelected()) {
+            filters.push({
+                property: 'State',
+                operator: '!=',
+                value: 'Cancelled'
+            });
+        }
 
 
         if (this.ancestorFilterPlugin.useSpecificProjects()) {
             dataContext.project = null;
         }
 
-        //}
+        // if (this.projects && this.projects.length) {
+        //     filters.push({
+        //         property: 'Project',
+        //         operator: this.projects.length === 1 ? '=' : 'in',
+        //         value: this.projects.length === 1 ? this.projects[0] : this.projects
+        //     });
+        // }
 
         let promises = [];
 
-        if (timeboxOids.length <= 4) {
-            filters.push({
+        // if (timeboxOids.length <= 4) {
+        //     filters.push({
+        //         property: this.timeboxType,
+        //         operator: timeboxOids.length === 1 ? '=' : 'in',
+        //         value: timeboxOids.length === 1 ? timeboxOids[0] : timeboxOids
+        //     });
+
+        //     let store = Ext.create('Rally.data.lookback.SnapshotStore', {
+        //         autoLoad: false,
+        //         context: dataContext,
+        //         fetch: [this.timeboxType, '_ValidFrom', '_ValidTo', 'ObjectID'],
+        //         hydrate: [this.timeboxType],
+        //         remoteSort: false,
+        //         compress: true,
+        //         enablePostGet: true,
+        //         filters: filters,
+        //         limit: 40000,
+        //         includeTotalResultCount: false,
+        //         removeUnauthorizedSnapshots: true
+        //     });
+
+        //     promises.push(store.load());
+        // }
+        // else {
+        let chunks = this.chunk(timeboxOids, 4);
+
+        for (let chunk of chunks) {
+            let newFilter = filters.concat({
                 property: this.timeboxType,
-                operator: 'in',
-                value: timeboxOids
+                operator: chunk.length === 1 ? '=' : 'in',
+                value: chunk.length === 1 ? chunk[0] : chunk
             });
 
             let store = Ext.create('Rally.data.lookback.SnapshotStore', {
@@ -910,7 +953,7 @@ Ext.define("committed-vs-delivered", {
                 remoteSort: false,
                 compress: true,
                 enablePostGet: true,
-                filters: filters,
+                filters: newFilter,
                 limit: 40000,
                 includeTotalResultCount: false,
                 removeUnauthorizedSnapshots: true
@@ -918,33 +961,7 @@ Ext.define("committed-vs-delivered", {
 
             promises.push(store.load());
         }
-        else {
-            let chunks = this.chunk(timeboxOids, 4);
-
-            for (let chunk of chunks) {
-                let newFilter = filters.concat({
-                    property: this.timeboxType,
-                    operator: 'in',
-                    value: chunk
-                });
-
-                let store = Ext.create('Rally.data.lookback.SnapshotStore', {
-                    autoLoad: false,
-                    context: dataContext,
-                    fetch: [this.timeboxType, '_ValidFrom', '_ValidTo', 'ObjectID'],
-                    hydrate: [this.timeboxType],
-                    remoteSort: false,
-                    compress: true,
-                    enablePostGet: true,
-                    filters: newFilter,
-                    limit: 40000,
-                    includeTotalResultCount: false,
-                    removeUnauthorizedSnapshots: true
-                });
-
-                promises.push(store.load());
-            }
-        }
+        //}
 
         return Deft.Promise.all(promises);
     },
@@ -1357,8 +1374,10 @@ Ext.define("committed-vs-delivered", {
         this.down('#applySettingsBtn').hide();
         if (this.down('#applyProjectsBtn')) { this.down('#applyProjectsBtn').hide(); }
         let status = this.cancelPreviousLoad();
-        if (this.ancestorFilterPlugin.projectPicker) {
-            this.ancestorFilterPlugin.projectPicker.updateProjectTabText();
+
+        this.setLoading('Loading Projects...');
+
+        if (this.ancestorFilterPlugin.useSpecificProjects()) {
             this.projects = await this.ancestorFilterPlugin.getProjectIDs();
             this.projectRefs = await this.ancestorFilterPlugin.getProjectRefs()
         } else {
@@ -1370,33 +1389,34 @@ Ext.define("committed-vs-delivered", {
                 this.projectRefs = [this.getContext().getProject()._ref];
             }
         }
-        let artifactType = this.down('#artifactTypeCombo').getValue();
 
-        if (this.artifactType) {
-            if (this.artifactType !== artifactType) {
-                this.artifactType = artifactType;
-                this.ancestorAndMultiFilters = await this.ancestorFilterPlugin.getAllFiltersForType(this.artifactType, true).catch((e) => {
-                    this.showError(e);
-                });
-
-                if (!this.ancestorAndMultiFilters) {
-                    return;
-                }
-            }
-        }
-        else {
-            this.artifactType = this.down('#artifactTypeCombo').getValue();
-        }
-
-        if (!this.projects && this.ancestorFilterPlugin.projectPicker) {
-            //await this.loadProjects();
-
-            //if (!this.projects || !this.projects.length) {
+        if (!this.projects) {
             this.showError('Failed to fetch list of project IDs');
             this.setLoading(false);
             return;
-            //}
         }
+
+        this.artifactType = this.down('#artifactTypeCombo').getValue();
+
+        this.setLoading('Loading Filters...');
+
+        // If specific projects are selected, we'll be fetching artifacts on a per-project basis and therefore
+        // don't need the project filter included in the multilevel filters
+        if (this.ancestorFilterPlugin.useSpecificProjects()) {
+            let ancestorFilter = this.ancestorFilterPlugin.getAncestorFilterForType(this.artifactType);
+            let filters = ancestorFilter ? [ancestorFilter] : [];
+            let multiFilters = await this.ancestorFilterPlugin.getMultiLevelFiltersForType(this.artifactType, true).catch((e) => {
+                this.showError(e);
+            });
+            this.ancestorAndMultiFilters = multiFilters ? filters.concat(multiFilters) : null;
+        }
+        else {
+            this.ancestorAndMultiFilters = await this.ancestorFilterPlugin.getAllFiltersForType(this.artifactType, true).catch((e) => {
+                this.showError(e);
+            });
+        }
+
+        if (!this.ancestorAndMultiFilters) { return; }
 
         this._buildChartConfig(status).then({
             scope: this,
